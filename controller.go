@@ -13,7 +13,7 @@ func pushNewTable(tableName string) error {
 		return fmt.Errorf("Server is busy right now. Try again later.")
 	}
 
-	registeredTables := getRegisteredTables()
+	registeredTables := GetRegisteredTables()
 	registeredTables[tableName] = RegisteredTable{
 		Name:   tableName,
 		Status: "created",
@@ -65,7 +65,7 @@ func dumpTable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	go initialDump(tableName)
+	go InitialDump(tableName)
 	io.WriteString(w, "Table dump started successfully")
 	w.WriteHeader(http.StatusOK)
 	return
@@ -84,7 +84,7 @@ func getTable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// return table info
-	registeredTables := getRegisteredTables()
+	registeredTables := GetRegisteredTables()
 	table, exists := registeredTables[tableName]
 	if !exists {
 		http.Error(w, "Table does not exists", http.StatusConflict)
@@ -99,7 +99,7 @@ func getTable(w http.ResponseWriter, r *http.Request) {
 
 func getAllTable(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("got /get-all-table request\n")
-	registeredTables := getRegisteredTables()
+	registeredTables := GetRegisteredTables()
 	jsonData, _ := json.Marshal(registeredTables)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)

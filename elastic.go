@@ -11,8 +11,7 @@ import (
 	"github.com/elastic/go-elasticsearch/v7/esapi"
 )
 
-func bulkSendToElastic(documents []map[string]interface{}) error{
-    indexName := "orders"
+func bulkSendToElastic(indexName string, documents []map[string]interface{}) error{
     if len(documents) == 0 {
         return fmt.Errorf("no documents to index")
     }

@@ -16,6 +16,7 @@ import (
 
 	"github.com/pingcap/tidb/pkg/parser"
 	"github.com/pingcap/tidb/pkg/parser/ast"
+    _ "github.com/pingcap/tidb/pkg/parser/test_driver" // Required for the parser to work
 )
 
 type ColumnData struct {
@@ -63,9 +64,17 @@ func writeTableStructureFromDumpfile(tableName string) error {
 	return nil
 }
 
-func sendDataToElasticFromDumpfile(tableName string) error {
+func SendDataToElasticFromDumpfile(tableName string) error {
 	dumpFilePath := getDumpFilePath(tableName)
 	progressFile := getDumpReadProgressFilePath(tableName)
+
+
+    table := GetRegisteredTables()[tableName]
+    if table.Status != "moving" {
+       setTableStatus(tableName, "moving")
+    }
+
+    writeTableStructureFromDumpfile(tableName)
 	tableStructure, _ := getTableStructure(getDumpTableStructureFilePath(tableName))
 
 	currentOffset := readLastOffset(progressFile)
@@ -90,7 +99,7 @@ func sendDataToElasticFromDumpfile(tableName string) error {
 
 		if strings.HasPrefix(line, "INSERT INTO") && strings.HasSuffix(line, ";") {
 
-			err = processInsertString(line, tableStructure)
+			err = processInsertString(tableName, line, tableStructure)
 			if err != nil {
 				return err
 			}
@@ -104,7 +113,7 @@ func sendDataToElasticFromDumpfile(tableName string) error {
 			if strings.HasSuffix(line, ";") {
 				insertStatement := currentStatement.String()
 
-				err = processInsertString(insertStatement, tableStructure)
+				err = processInsertString(tableName, insertStatement, tableStructure)
 				if err != nil {
 					return err
 				}
@@ -130,6 +139,7 @@ func sendDataToElasticFromDumpfile(tableName string) error {
 		return err
 	}
 
+    setTableStatus(tableName, "syncing")
 	return nil
 }
 
@@ -233,8 +243,8 @@ func getDumpFilePath(tableName string) (string) {
    return "data/dumps/" + tableName + "/" + tableName + ".sql"
 }
 
-func initialDump(tableName string) error{
-    registeredTables := getRegisteredTables()
+func InitialDump(tableName string) error{
+    registeredTables := GetRegisteredTables()
     table, exists := registeredTables[tableName]
     if !exists {
         return fmt.Errorf("table %s not found in registered tables", tableName)
@@ -243,11 +253,10 @@ func initialDump(tableName string) error{
     if table.Status != "created" {
         return fmt.Errorf("table %s is not in the created state", table.Name)
     }
+
     // Set the table status to "dumping"
-    table.Status = "dumping"
-    registeredTables[table.Name] = table
-    jsonData, _ := json.Marshal(registeredTables)
-    os.WriteFile(registeredTablesFilePath, jsonData, 0644)
+    setTableStatus(tableName, "dumping")
+
     args := []string{
 		"--single-transaction",
 		"--master-data=2",
@@ -297,12 +306,45 @@ func initialDump(tableName string) error{
 		return fmt.Errorf("mysqldump failed: %w", err)
 	}
 
-    // Set the table status to "dumped"
-    table.Status = "dumped"
-    registeredTables[table.Name] = table    
-    jsonData, _ = json.Marshal(registeredTables)
-    os.WriteFile(registeredTablesFilePath, jsonData, 0644)
+    setTableStatus(tableName, "dumped")
     fmt.Println("Dump completed successfully.")
 
+    return nil
+}
+
+
+
+func ClearIncompleteDumpedData(tableName string) error{
+    createDirectoryIfNotExists("data/dumps")
+    createDirectoryIfNotExists("data/dumps/" + tableName)
+    // clear every file and directory in the above directory
+    files, err := os.ReadDir("data/dumps/" + tableName)
+    if err != nil {
+        return fmt.Errorf("failed to read dump directory: %w", err)
+    }
+    for _, file := range files {
+        filePath := "data/dumps/" + tableName + "/" + file.Name()
+        err = os.RemoveAll(filePath)
+        if err != nil {
+            return fmt.Errorf("failed to remove file %s: %w", filePath, err)
+        }
+    }
+
+    // Reset the table status to "created"
+    setTableStatus(tableName, "created")
+
+    return nil
+}
+
+func setTableStatus(tableName string, status string) error {
+    registeredTables := GetRegisteredTables()
+    table, exists := registeredTables[tableName]
+    if !exists {
+        return fmt.Errorf("table %s not found in registered tables", tableName)
+    }
+    table.Status = status
+    registeredTables[table.Name] = table
+    jsonData, _ := json.Marshal(registeredTables)
+    os.WriteFile(registeredTablesFilePath, jsonData, 0644)
     return nil
 }

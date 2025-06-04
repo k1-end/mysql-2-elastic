@@ -7,12 +7,16 @@ import (
 	"os"
 )
 
+const (
+    registeredTablesFilePath = "data/registered-tables.json"
+)
+
 type RegisteredTable struct {
     Name string `json:"name"`
     Status string `json:"status"`
 }
 
-func getRegisteredTables() map[string]RegisteredTable {
+func GetRegisteredTables() map[string]RegisteredTable {
 	file, err := os.Open(registeredTablesFilePath)
 	if err != nil {
 		panic(err)
@@ -66,7 +70,7 @@ func getTableStructure(structurePath string) ([]map[string]interface{}, error) {
 }
 
 func tableExists(tableName string) bool {
-    _, exists := getRegisteredTables()[tableName]
+    _, exists := GetRegisteredTables()[tableName]
     return exists
 }
 

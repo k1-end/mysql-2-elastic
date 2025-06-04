@@ -38,7 +38,7 @@ func getColumnNameFromPosition(tableStructure []map[string]interface{}, position
 }
 
 
-func processInsertString(insertStatement string, tableStructure []map[string]interface{}) error {
+func processInsertString(tableName string, insertStatement string, tableStructure []map[string]interface{}) error {
     p := parser.New()
     // Parse the SQL statement
     // The last two arguments are charset and collation, which can be empty for default.
@@ -73,7 +73,7 @@ func processInsertString(insertStatement string, tableStructure []map[string]int
         values = append(values, singleValues)
     }
 
-    err = bulkSendToElastic(values)
+    err = bulkSendToElastic(tableName, values)
     if err != nil {
         return err
     }

@@ -24,9 +24,9 @@ func bulkSendToElastic(indexName string, documents []map[string]interface{}) err
             },
         }
         // If your document has an "id" field, you can use it for the document ID in Elasticsearch
-        // if docID, ok := doc["id"]; ok {
-        //     meta["index"].(map[string]interface{})["_id"] = fmt.Sprintf("%v", docID)
-        // }
+        if docID, ok := doc["id"]; ok {
+            meta["index"].(map[string]interface{})["_id"] = fmt.Sprintf("%v", docID)
+        }
 
         metaBytes, err := json.Marshal(meta)
         if err != nil {
@@ -64,6 +64,7 @@ func bulkSendToElastic(indexName string, documents []map[string]interface{}) err
         // APIKey:  "<YOUR_API_KEY>",
     }
     es, err := elasticsearch.NewClient(cfg)
+    
     if err != nil {
         log.Fatalf("Error creating the Elasticsearch client: %s", err)
     }
@@ -105,3 +106,4 @@ func bulkSendToElastic(indexName string, documents []map[string]interface{}) err
 
     return nil
 }
+

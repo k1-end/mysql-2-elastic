@@ -16,7 +16,8 @@ import (
 
 	"github.com/pingcap/tidb/pkg/parser"
 	"github.com/pingcap/tidb/pkg/parser/ast"
-    _ "github.com/pingcap/tidb/pkg/parser/test_driver" // Required for the parser to work
+	_ "github.com/pingcap/tidb/pkg/parser/test_driver" // Required for the parser to work
+	"github.com/spf13/viper"
 )
 
 type ColumnData struct {
@@ -25,9 +26,60 @@ type ColumnData struct {
     Position int `json:"position"`
 }
 
+type DatabaseConfig struct {
+	Driver   string `mapstructure:"driver"`
+	Host     string `mapstructure:"host"`
+	Port     int    `mapstructure:"port"`
+	Name     string `mapstructure:"name"`
+	Username string `mapstructure:"username"`
+	Password string `mapstructure:"password"`
+}
+
+type Config struct {
+	Database DatabaseConfig `mapstructure:"database"`
+}
+
+func init() {
+	// Set the file name (without extension)
+	viper.SetConfigName("config")
+	// Set the config file type
+	viper.SetConfigType("json")
+	// Add paths to search for the config file
+	viper.AddConfigPath(".") // Look in the current directory
+	// You can add multiple paths:
+	// viper.AddConfigPath("/etc/yourapp/")
+	// viper.AddConfigPath("$HOME/.yourapp")
+
+	// Read in the config file
+	if err := viper.ReadInConfig(); err != nil {
+		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
+			// Config file not found; ignore error if desired,
+			// perhaps relying on environment variables or defaults
+			fmt.Println("Warning: config.json not found. Using defaults or environment variables.")
+		} else {
+			// Some other error occurred reading the config file
+			log.Fatalf("Fatal error reading config file: %v", err)
+		}
+	}
+
+	// Unmarshal the config into your struct
+	if err := viper.Unmarshal(&AppConfiguration); err != nil {
+		log.Fatalf("Unable to decode config into struct: %v", err)
+	}
+
+
+	// Re-unmarshal after AutomaticEnv() to ensure environment variables
+	// are applied to the struct if they exist.
+	if err := viper.Unmarshal(&AppConfiguration); err != nil {
+		log.Fatalf("Unable to decode config into struct after env binding: %v", err)
+	}
+}
+
+var AppConfiguration Config // Global variable to hold your configuration
+
 func writeTableStructureFromDumpfile(tableName string) error {
 
-	createStatement, err := getCreateTableStatementFromDumpFile(getDumpFilePath(tableName))
+	createStatement, err := getCreateTableStatementFromDumpFile(GetDumpFilePath(tableName))
 	p := parser.New()
 
 	stmtNodes, _, err := p.Parse(createStatement, "", "")
@@ -65,7 +117,7 @@ func writeTableStructureFromDumpfile(tableName string) error {
 }
 
 func SendDataToElasticFromDumpfile(tableName string) error {
-	dumpFilePath := getDumpFilePath(tableName)
+	dumpFilePath := GetDumpFilePath(tableName)
 	progressFile := getDumpReadProgressFilePath(tableName)
 
 
@@ -139,7 +191,7 @@ func SendDataToElasticFromDumpfile(tableName string) error {
 		return err
 	}
 
-    setTableStatus(tableName, "syncing")
+    setTableStatus(tableName, "moved")
 	return nil
 }
 
@@ -174,10 +226,10 @@ func getCreateTableStatementFromDumpFile(dumpFilePath string) (string, error) {
 	return "", fmt.Errorf("CREATE TABLE statement not found in dump file")
 }
 
-func getBinlogCoordinatesFromDumpfile(dumpFilePath string) (string, uint32, error) {
+func GetBinlogCoordinatesFromDumpfile(dumpFilePath string) (BinlogPosition, error) {
 	file, err := os.Open(dumpFilePath)
 	if err != nil {
-		return "", 0, fmt.Errorf("failed to open dump file for parsing: %w", err)
+		return BinlogPosition{}, fmt.Errorf("failed to open dump file for parsing: %w", err)
 	}
 	defer file.Close()
 
@@ -193,37 +245,37 @@ func getBinlogCoordinatesFromDumpfile(dumpFilePath string) (string, uint32, erro
 			if err == io.EOF {
 				break
 			}
-			return "", 0, fmt.Errorf("error reading dump file: %w", err)
+			return BinlogPosition{}, fmt.Errorf("error reading dump file: %w", err)
 		}
 		if matches := re.FindStringSubmatch(line); len(matches) == 3 {
 			logFile = matches[1]
 			pos, err := strconv.ParseUint(matches[2], 10, 32)
 			if err != nil {
-				return "", 0, fmt.Errorf("failed to parse binlog position: %w", err)
+				return BinlogPosition{}, fmt.Errorf("failed to parse binlog position: %w", err)
 			}
 			logPos = uint32(pos)
-			return logFile, logPos, nil
+			return BinlogPosition{Logfile: logFile, Logpos: logPos}, nil
 		}
 	}
 
-	return "", 0, fmt.Errorf("binlog coordinates not found in dump file")
+	return BinlogPosition{}, fmt.Errorf("binlog coordinates not found in dump file")
 }
 
-func writeDumpfilePosition(tableName string) error {
+func WriteDumpfilePosition(tableName string) error {
 
-    logfile, logpos, err := getBinlogCoordinatesFromDumpfile(tableName)
+    binlogPos, err := GetBinlogCoordinatesFromDumpfile(GetDumpFilePath(tableName))
     // write the above info to a json file
     if err != nil {
         return fmt.Errorf("failed to parse binlog coordinates from dump: %w", err)
     }
     jsonData, err := json.Marshal(map[string]interface{}{
-        "logfile": logfile,
-        "logpos":  logpos,
+        "logfile": binlogPos.Logfile,
+        "logpos":  binlogPos.Logpos,
     })
     if err != nil {
         return fmt.Errorf("failed to marshal binlog coordinates: %w", err)
     }
-    err = os.WriteFile(getDumpBinlogPositionFilePath(tableName), jsonData, 0644)
+    err = os.WriteFile(GetDumpBinlogPositionFilePath(tableName), jsonData, 0644)
     return nil
 }
 
@@ -235,11 +287,11 @@ func getDumpReadProgressFilePath(tableName string) (string) {
    return "data/dumps/" + tableName + "/" + "read_progress.txt"
 }
 
-func getDumpBinlogPositionFilePath(tableName string) (string) {
+func GetDumpBinlogPositionFilePath(tableName string) (string) {
    return "data/dumps/" + tableName + "/" + tableName + "-dump-binlog-position.json" 
 }
 
-func getDumpFilePath(tableName string) (string) {
+func GetDumpFilePath(tableName string) (string) {
    return "data/dumps/" + tableName + "/" + tableName + ".sql"
 }
 
@@ -264,7 +316,7 @@ func InitialDump(tableName string) error{
 		fmt.Sprintf("--password=%s", "password"),
         fmt.Sprintf("--host=%s", "localhost"),
         fmt.Sprintf("--port=%s", "3310"),
-		"***REMOVED***",
+		AppConfiguration.Database.Name,
 	}
 
 	args = append(args, []string{table.Name}...)
@@ -278,7 +330,7 @@ func InitialDump(tableName string) error{
 
     createDirectoryIfNotExists("data/dumps")
     createDirectoryIfNotExists("data/dumps/" + tableName)
-    outputFile := getDumpFilePath(tableName)
+    outputFile := GetDumpFilePath(tableName)
     outfile, err := os.Create(outputFile)
 	if err != nil {
 		return fmt.Errorf("failed to create output file: %w", err)

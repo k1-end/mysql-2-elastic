@@ -57,7 +57,7 @@ func processInsertString(tableName string, insertStatement string, tableStructur
     }
     var values []map[string]interface{} 
     for i, row := range insertStmt.Lists {
-        var singleValues = make(map[string]interface{})
+        var singleRecord = make(map[string]interface{})
         for j, expr := range row {
             val, err := extractValue(expr)
             if err != nil {
@@ -68,9 +68,9 @@ func processInsertString(tableName string, insertStatement string, tableStructur
             if err != nil {
                 return fmt.Errorf("Error getting column name from position %d: %w", j, err)
             }
-            singleValues[columnName] = val
+            singleRecord[columnName] = val
         }
-        values = append(values, singleValues)
+        values = append(values, singleRecord)
     }
 
     err = bulkSendToElastic(tableName, values)

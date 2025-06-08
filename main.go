@@ -137,7 +137,7 @@ func SyncTableUntileDestination(tableName string, desBinlogPos BinlogPosition) e
         Pos: currentBinlogPos.Logpos,
     })
 
-    for {
+    for CompareBinlogPositions(currentBinlogPos, desBinlogPos) < 0 {
         ev, _ := streamer.GetEvent(context.Background())
         //print position get from event
         switch e := ev.Event.(type) {
@@ -553,7 +553,7 @@ func bulkDeleteFromElastic(rows [][]interface{}, tableStructure []map[string]int
     return nil
 }
 
-func SyncMainBinlogWithDumpFile(binlogPos BinlogPosition) error {
+func SyncMainBinlogWithDumpFile(desBinlogPos BinlogPosition) error {
     fmt.Println("Syncing main loop")
     cfg := replication.BinlogSyncerConfig {
         ServerID: 100,
@@ -586,7 +586,7 @@ func SyncMainBinlogWithDumpFile(binlogPos BinlogPosition) error {
     }
             
 
-    for binlogPos.Logfile > currentBinlogPos.Logfile && binlogPos.Logpos > currentBinlogPos.Logpos{
+    for CompareBinlogPositions(currentBinlogPos, desBinlogPos) < 0 {
         ev, _ := streamer.GetEvent(context.Background())
         //print position get from event
         switch e := ev.Event.(type) {
@@ -635,4 +635,21 @@ func SyncMainBinlogWithDumpFile(binlogPos BinlogPosition) error {
     }
 
     return nil
+}
+
+// write a function to compare BinlogPosition
+func CompareBinlogPositions(pos1, pos2 BinlogPosition) int {
+    if pos1.Logfile < pos2.Logfile {
+        return -1
+    } else if pos1.Logfile > pos2.Logfile {
+        return 1
+    } else {
+        if pos1.Logpos < pos2.Logpos {
+            return -1
+        } else if pos1.Logpos > pos2.Logpos {
+            return 1
+        } else {
+            return 0
+        }
+    }
 }

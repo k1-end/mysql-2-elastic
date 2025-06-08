@@ -131,17 +131,18 @@ func SyncTableUntileDestination(tableName string, desBinlogPos BinlogPosition) e
 
     for CompareBinlogPositions(currentBinlogPos, desBinlogPos) < 0 {
         ev, _ := streamer.GetEvent(context.Background())
+        currentBinlogPos.Logpos = uint32(ev.Header.LogPos) // Update the current position from the event header
         //print position get from event
         switch e := ev.Event.(type) {
         case *replication.RotateEvent:
             currentBinlogPos.Logfile = string(e.NextLogName)
-            currentBinlogPos.Logpos = uint32(e.Position)
             fmt.Printf("🔄 Binlog rotated to: %s at position %d\n", currentBinlogPos.Logfile, currentBinlogPos.Logpos)
         
         case *replication.RowsEvent:
             // This event contains the row data for INSERT, UPDATE, DELETE
             eventTableName := string(e.Table.Table) // Get table name from the event
             if eventTableName != tableName {
+                WriteBinlogPosition(currentBinlogPos, tableName) // Update the position after rotation
                 continue
             }
             schemaName := string(e.Table.Schema) // Get schema name
@@ -301,17 +302,18 @@ func SyncMainBinlogWithDumpFile(desBinlogPos BinlogPosition) error {
 
     for CompareBinlogPositions(currentBinlogPos, desBinlogPos) < 0 {
         ev, _ := streamer.GetEvent(context.Background())
+        currentBinlogPos.Logpos = uint32(ev.Header.LogPos) // Update the current position from the event header
         //print position get from event
         switch e := ev.Event.(type) {
         case *replication.RotateEvent:
             currentBinlogPos.Logfile = string(e.NextLogName)
-            currentBinlogPos.Logpos = uint32(e.Position)
             fmt.Printf("🔄 Binlog rotated to: %s at position %d\n", currentBinlogPos.Logfile, currentBinlogPos.Logpos)
         
         case *replication.RowsEvent:
             // This event contains the row data for INSERT, UPDATE, DELETE
             eventTableName := string(e.Table.Table) // Get table name from the event
             if !slices.Contains(synchingTableNames, eventTableName) {
+                WriteBinlogPosition(currentBinlogPos, "main") // Update the position after rotation
                 continue
             }
             schemaName := string(e.Table.Schema) // Get schema name

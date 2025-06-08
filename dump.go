@@ -68,8 +68,6 @@ func init() {
 	}
 
 
-	// Re-unmarshal after AutomaticEnv() to ensure environment variables
-	// are applied to the struct if they exist.
 	if err := viper.Unmarshal(&AppConfiguration); err != nil {
 		log.Fatalf("Unable to decode config into struct after env binding: %v", err)
 	}

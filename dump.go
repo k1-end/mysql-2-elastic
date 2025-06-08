@@ -123,7 +123,7 @@ func SendDataToElasticFromDumpfile(tableName string) error {
 
     table := GetRegisteredTables()[tableName]
     if table.Status != "moving" {
-       setTableStatus(tableName, "moving")
+       SetTableStatus(tableName, "moving")
     }
 
     writeTableStructureFromDumpfile(tableName)
@@ -191,7 +191,7 @@ func SendDataToElasticFromDumpfile(tableName string) error {
 		return err
 	}
 
-    setTableStatus(tableName, "moved")
+    SetTableStatus(tableName, "moved")
 	return nil
 }
 
@@ -307,7 +307,7 @@ func InitialDump(tableName string) error{
     }
 
     // Set the table status to "dumping"
-    setTableStatus(tableName, "dumping")
+    SetTableStatus(tableName, "dumping")
 
     args := []string{
 		"--single-transaction",
@@ -358,7 +358,7 @@ func InitialDump(tableName string) error{
 		return fmt.Errorf("mysqldump failed: %w", err)
 	}
 
-    setTableStatus(tableName, "dumped")
+    SetTableStatus(tableName, "dumped")
     fmt.Println("Dump completed successfully.")
 
     return nil
@@ -383,12 +383,12 @@ func ClearIncompleteDumpedData(tableName string) error{
     }
 
     // Reset the table status to "created"
-    setTableStatus(tableName, "created")
+    SetTableStatus(tableName, "created")
 
     return nil
 }
 
-func setTableStatus(tableName string, status string) error {
+func SetTableStatus(tableName string, status string) error {
     registeredTables := GetRegisteredTables()
     table, exists := registeredTables[tableName]
     if !exists {

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"log/slog"
 	"os"
 	"slices"
 	"strings"
@@ -38,20 +39,27 @@ func processTables(registeredTables map[string]RegisteredTable) {
             ClearIncompleteDumpedData(table.Name)
             InitialDump(table.Name)
             SendDataToElasticFromDumpfile(table.Name)
+            SyncWithTheMainLoop(table.Name)
         case "dumping":
 			fmt.Println("Status: Dumping")
             ClearIncompleteDumpedData(table.Name)
             InitialDump(table.Name)
             SendDataToElasticFromDumpfile(table.Name)
+            SyncWithTheMainLoop(table.Name)
 		case "dumped":
 			fmt.Println("Status: Dumped")
             SendDataToElasticFromDumpfile(table.Name)
+            SyncWithTheMainLoop(table.Name)
 		case "moving":
 			fmt.Println("Status: Moving")
             SendDataToElasticFromDumpfile(table.Name)
+            SyncWithTheMainLoop(table.Name)
 		case "moved":
 			fmt.Println("Status: Moved")
-            SyncWithTheMainLoop(table.Name)
+            err := SyncWithTheMainLoop(table.Name)
+            if err != nil {
+                log.Fatalf("Error syncing with the main loop for table %s: %v", table.Name, err)
+            }
 		case "syncing":
             continue
 		default:
@@ -88,6 +96,7 @@ func SyncWithTheMainLoop(tableName string) error{
         SyncMainBinlogWithDumpFile(tableBinlogPos)
     }
     fmt.Println("Sync completed for table:", tableName)
+    SetTableStatus(tableName, "syncing")
     return nil
 }
 

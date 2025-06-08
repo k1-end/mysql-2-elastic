@@ -59,8 +59,7 @@ func processTables(registeredTables map[string]RegisteredTable) {
 		case "syncing":
             continue
 		default:
-			fmt.Printf("Unknown status for table %s: %s\n", table.Name, table.Status)
-            os.Exit(1)
+            log.Fatalf("Unknown status for table %s: %s\n", table.Name, table.Status)
 		}
     }
 }

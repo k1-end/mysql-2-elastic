@@ -18,6 +18,9 @@ func extractValue(expr ast.ExprNode) (interface{}, error) {
         return v.GetValue(), nil
     case *ast.DefaultExpr:
         return "DEFAULT", nil
+    case *ast.UnaryOperationExpr:
+        return v.Text(), nil
+
     default:
         return nil, fmt.Errorf("unsupported expression type: %T", expr)
     }

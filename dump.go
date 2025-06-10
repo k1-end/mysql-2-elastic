@@ -30,43 +30,39 @@ type DatabaseConfig struct {
 	Driver   string `mapstructure:"driver"`
 	Host     string `mapstructure:"host"`
 	Port     int    `mapstructure:"port"`
+	ServerId int    `mapstructure:"server_id"`
 	Name     string `mapstructure:"name"`
 	Username string `mapstructure:"username"`
 	Password string `mapstructure:"password"`
 }
 
+type ElasticConfig struct {
+    Address string `mapstructure:"address"`
+    Username string `mapstructure:"username"`
+    Password string `mapstructure:"password"`
+}
+
 type Config struct {
 	Database DatabaseConfig `mapstructure:"database"`
+    Elastic ElasticConfig `mapstructure:"elastic"`
+    MysqlDumpPath string `mapstructure:"mysqldump_path"`
 }
 
 func init() {
-	// Set the file name (without extension)
 	viper.SetConfigName("config")
-	// Set the config file type
 	viper.SetConfigType("json")
-	// Add paths to search for the config file
 	viper.AddConfigPath(".") // Look in the current directory
-	// You can add multiple paths:
-	// viper.AddConfigPath("/etc/yourapp/")
-	// viper.AddConfigPath("$HOME/.yourapp")
-
-	// Read in the config file
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
-			// Config file not found; ignore error if desired,
-			// perhaps relying on environment variables or defaults
 			fmt.Println("Warning: config.json not found. Using defaults or environment variables.")
 		} else {
-			// Some other error occurred reading the config file
 			log.Fatalf("Fatal error reading config file: %v", err)
 		}
 	}
 
-	// Unmarshal the config into your struct
 	if err := viper.Unmarshal(&AppConfiguration); err != nil {
 		log.Fatalf("Unable to decode config into struct: %v", err)
 	}
-
 
 	if err := viper.Unmarshal(&AppConfiguration); err != nil {
 		log.Fatalf("Unable to decode config into struct after env binding: %v", err)
@@ -310,10 +306,10 @@ func InitialDump(tableName string) error{
     args := []string{
 		"--single-transaction",
 		"--master-data=2",
-		fmt.Sprintf("--user=%s", "admin"),
-		fmt.Sprintf("--password=%s", "password"),
-        fmt.Sprintf("--host=%s", "localhost"),
-        fmt.Sprintf("--port=%s", "3310"),
+		fmt.Sprintf("--user=%s", AppConfiguration.Database.Username),
+		fmt.Sprintf("--password=%s", AppConfiguration.Database.Password),
+        fmt.Sprintf("--host=%s", AppConfiguration.Database.Host),
+        fmt.Sprintf("--port=%d", AppConfiguration.Database.Port),
 		AppConfiguration.Database.Name,
 	}
 
@@ -322,7 +318,7 @@ func InitialDump(tableName string) error{
     ctx := context.Background()
 	cmd := exec.CommandContext(
 		ctx,
-		"C:\\Program Files\\MySQL\\MySQL Server 8.0\\bin\\mysqldump",
+		AppConfiguration.MysqlDumpPath,
 		args...,
 	)
 

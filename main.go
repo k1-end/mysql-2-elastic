@@ -254,12 +254,12 @@ func GetNewerBinlogPosition(pos1, pos2 BinlogPosition) BinlogPosition {
 func SyncTablesTillDestination(tableNames []string, desBinlogPos, currentBinlogPos BinlogPosition) error {
     fmt.Println("Syncing: ", tableNames)
     cfg := replication.BinlogSyncerConfig {
-        ServerID: 100,
-        Flavor:   "mysql",
-        Host:     "127.0.0.1",
-        Port:     3310,
-        User:     "admin",
-        Password: "password",
+        ServerID: uint32(AppConfiguration.Database.ServerId),
+        Flavor:   AppConfiguration.Database.Driver,
+        Host:     AppConfiguration.Database.Host,
+        Port:     uint16(AppConfiguration.Database.Port),
+        User:     AppConfiguration.Database.Username,
+        Password: AppConfiguration.Database.Password,
     }
 
     syncer := replication.NewBinlogSyncer(cfg)

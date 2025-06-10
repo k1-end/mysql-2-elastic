@@ -5,6 +5,14 @@
     "port": 3306,
     "name": "database_name",
     "username": "root",
-    "password": "password"
+    "password": "password",
+    "server_id": 100
+  },
+  "mysql_dump_path": "path_to_mysqldump_binary",
+  "elastic": {
+      "address": "http://localhost:9200",
+      "username": "elastic",
+      "password": "elastic"
   }
+
 }

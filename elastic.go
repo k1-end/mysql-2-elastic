@@ -57,13 +57,10 @@ func bulkSendToElastic(indexName string, documents []map[string]interface{}) err
 
     cfg := elasticsearch.Config{
         Addresses: []string{
-            "http://localhost:9200", // Default address, change if needed
+            AppConfiguration.Elastic.Address,
         },
-        Username: "elastic", // If you have security enabled
-        Password: "elastic",
-        // For Cloud ID:
-        // CloudID: "<YOUR_CLOUD_ID>",
-        // APIKey:  "<YOUR_API_KEY>",
+        Username: AppConfiguration.Elastic.Username,
+        Password: AppConfiguration.Elastic.Password,
     }
     es, err := elasticsearch.NewClient(cfg)
     
@@ -115,10 +112,10 @@ func bulkUpdateToElastic(indexName string, documents []map[string]interface{}) e
     }
     cfg := elasticsearch.Config{
         Addresses: []string{
-            "http://localhost:9200",
+            AppConfiguration.Elastic.Address,
         },
-        Username: "elastic",
-        Password: "elastic",
+        Username: AppConfiguration.Elastic.Username,
+        Password: AppConfiguration.Elastic.Password,
     }
 	es, err := elasticsearch.NewClient(cfg)
 	if err != nil {
@@ -256,10 +253,10 @@ func bulkDeleteFromElastic(indexName string, documents []map[string]interface{})
 
     cfg := elasticsearch.Config{
         Addresses: []string{
-            "http://localhost:9200",
+            AppConfiguration.Elastic.Address,
         },
-        Username: "elastic",
-        Password: "elastic",
+        Username: AppConfiguration.Elastic.Username,
+        Password: AppConfiguration.Elastic.Password,
     }
 	es, err := elasticsearch.NewClient(cfg)
 	if err != nil {

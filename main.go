@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"slices"
 
@@ -12,9 +13,12 @@ import (
 	"github.com/go-mysql-org/go-mysql/replication"
 )
 
+var RestartChannel chan bool
+var DoneChannel chan bool
 
 
-func main()  {
+func initializeTables()  {
+    
     registeredTables := GetRegisteredTables()
     // Is there any registered tables?
 	if len(registeredTables) == 0 {
@@ -27,6 +31,62 @@ func main()  {
     fmt.Println("Finished Processing table")
 }
 
+func main()  {
+    initializeTables()
+    go runTheSyncer()
+    http.HandleFunc("/", sendRestartSignal)
+    http.ListenAndServe(":8080", nil)
+}
+
+func sendRestartSignal(w http.ResponseWriter, r *http.Request) {
+    fmt.Fprintf(w, "Hello, World!")
+    RestartChannel<- true
+}
+
+func runTheSyncer() {
+    registeredTables := GetRegisteredTables()
+    var tableNames []string
+    for name, table := range registeredTables {
+        if table.Status == "syncing" {
+            tableNames = append(tableNames, name)
+        }
+    }
+    fmt.Println("Syncing: ", tableNames)
+    cfg := replication.BinlogSyncerConfig {
+        ServerID: uint32(AppConfiguration.Database.ServerId),
+        Flavor:   AppConfiguration.Database.Driver,
+        Host:     AppConfiguration.Database.Host,
+        Port:     uint16(AppConfiguration.Database.Port),
+        User:     AppConfiguration.Database.Username,
+        Password: AppConfiguration.Database.Password,
+    }
+
+    syncer := replication.NewBinlogSyncer(cfg)
+
+    currentBinlogPos, _ := GetBinlogCoordinates("main")
+
+    // Start sync with specified binlog file and position
+    streamer, err := syncer.StartSync(mysql.Position{
+        Name: currentBinlogPos.Logfile,
+        Pos: currentBinlogPos.Logpos,
+    })
+    if err != nil {
+        fmt.Println(err)
+    }
+    fmt.Println(streamer, 73)
+
+    for {
+        select {
+        case <-DoneChannel:
+            return
+        case <-RestartChannel:
+            initializeTables()
+        default:
+            processBinlogEvent(streamer, &currentBinlogPos, tableNames)
+        }
+    }
+}
+
 func processTables(registeredTables map[string]RegisteredTable) {
     for _, table := range registeredTables {
         switch table.Status {
@@ -37,30 +97,30 @@ func processTables(registeredTables map[string]RegisteredTable) {
             SendDataToElasticFromDumpfile(table.Name)
             SyncWithTheMainLoop(table.Name)
         case "dumping":
-			fmt.Println("Status: Dumping")
+            fmt.Println("Status: Dumping")
             ClearIncompleteDumpedData(table.Name)
             InitialDump(table.Name)
             SendDataToElasticFromDumpfile(table.Name)
             SyncWithTheMainLoop(table.Name)
-		case "dumped":
-			fmt.Println("Status: Dumped")
+        case "dumped":
+            fmt.Println("Status: Dumped")
             SendDataToElasticFromDumpfile(table.Name)
             SyncWithTheMainLoop(table.Name)
-		case "moving":
-			fmt.Println("Status: Moving")
+        case "moving":
+            fmt.Println("Status: Moving")
             SendDataToElasticFromDumpfile(table.Name)
             SyncWithTheMainLoop(table.Name)
-		case "moved":
-			fmt.Println("Status: Moved")
+        case "moved":
+            fmt.Println("Status: Moved")
             err := SyncWithTheMainLoop(table.Name)
             if err != nil {
                 log.Fatalf("Error syncing with the main loop for table %s: %v", table.Name, err)
             }
-		case "syncing":
+        case "syncing":
             continue
-		default:
+        default:
             log.Fatalf("Unknown status for table %s: %s\n", table.Name, table.Status)
-		}
+        }
     }
 }
 
@@ -234,6 +294,7 @@ func SyncMainBinlogWithDumpFile(desBinlogPos BinlogPosition) error {
     return nil
 }
 
+// If both args are equal, the first one will be returned
 func GetNewerBinlogPosition(pos1, pos2 BinlogPosition) BinlogPosition {
     if pos1.Logfile < pos2.Logfile {
         return pos2
@@ -271,53 +332,58 @@ func SyncTablesTillDestination(tableNames []string, desBinlogPos, currentBinlogP
     })
 
     for GetNewerBinlogPosition(currentBinlogPos, desBinlogPos) == desBinlogPos  && desBinlogPos != currentBinlogPos{
-        ev, _ := streamer.GetEvent(context.Background())
-        currentBinlogPos.Logpos = uint32(ev.Header.LogPos) // Update the current position from the event header
-        //print position get from event
-        switch e := ev.Event.(type) {
-        case *replication.RotateEvent:
-            currentBinlogPos.Logfile = string(e.NextLogName)
-            fmt.Printf("🔄 Binlog rotated to: %s at position %d\n", currentBinlogPos.Logfile, currentBinlogPos.Logpos)
-        
-        case *replication.RowsEvent:
-            // This event contains the row data for INSERT, UPDATE, DELETE
-            eventTableName := string(e.Table.Table) // Get table name from the event
-            if !slices.Contains(tableNames, eventTableName) {
-                WriteBinlogPosition(currentBinlogPos, "main") // Update the position after rotation
-                continue
-            }
-            schemaName := string(e.Table.Schema) // Get schema name
-
-            fmt.Printf("ROW EVENT for %s.%s\n", schemaName, eventTableName)
-
-            switch ev.Header.EventType {
-            case replication.WRITE_ROWS_EVENTv1, replication.WRITE_ROWS_EVENTv2:
-                fmt.Println("  ➡️ INSERT:")
-                tableStructure, _ := getTableStructure(getDumpTableStructureFilePath(eventTableName))
-                bulkInsertBinlogRowsToElastic(e.Rows, tableStructure, eventTableName)
-            case replication.UPDATE_ROWS_EVENTv1, replication.UPDATE_ROWS_EVENTv2:
-                fmt.Println("  🔄 UPDATE:")
-                fmt.Println(e.ColumnBitmap2)
-                // For UPDATE events, e.Rows contains pairs of [before-image, after-image]
-                // The length of e.Rows will be N*2, where N is the number of updated rows.
-                tableStructure, _ := getTableStructure(getDumpTableStructureFilePath(eventTableName))
-                var afterDocs [][]interface{}
-                for i := 0; i < len(e.Rows); i += 2 {
-                    afterValues := e.Rows[i+1]
-                    afterDocs = append(afterDocs, afterValues)
-                }
-                bulkUpdateBinlogRowsToElastic(afterDocs, tableStructure, eventTableName)
-            case replication.DELETE_ROWS_EVENTv1, replication.DELETE_ROWS_EVENTv2:
-                fmt.Println("  🗑️ DELETE:")
-                tableStructure, _ := getTableStructure(getDumpTableStructureFilePath(eventTableName))
-                bulkDeleteBinlogRowsFromElastic(e.Rows, tableStructure, eventTableName)
-            }
-        case *replication.QueryEvent:
-            // DDL changes, etc.
-        default:
-        }
-        WriteBinlogPosition(currentBinlogPos, "main") // Update the position after rotation
+        processBinlogEvent(streamer, &currentBinlogPos, tableNames)
     }
 
     return nil
+}
+
+func processBinlogEvent(streamer *replication.BinlogStreamer, currentBinlogPos *BinlogPosition, tableNames []string) bool{
+    ev, _ := streamer.GetEvent(context.Background())
+    currentBinlogPos.Logpos = uint32(ev.Header.LogPos) // Update the current position from the event header
+    //print position get from event
+    switch e := ev.Event.(type) {
+    case *replication.RotateEvent:
+        currentBinlogPos.Logfile = string(e.NextLogName)
+        fmt.Printf("🔄 Binlog rotated to: %s at position %d\n", currentBinlogPos.Logfile, currentBinlogPos.Logpos)
+
+    case *replication.RowsEvent:
+        // This event contains the row data for INSERT, UPDATE, DELETE
+        eventTableName := string(e.Table.Table) // Get table name from the event
+        if !slices.Contains(tableNames, eventTableName) {
+            WriteBinlogPosition(*currentBinlogPos, "main") // Update the position after rotation
+            return false
+        }
+        schemaName := string(e.Table.Schema) // Get schema name
+
+        fmt.Printf("ROW EVENT for %s.%s\n", schemaName, eventTableName)
+
+        switch ev.Header.EventType {
+        case replication.WRITE_ROWS_EVENTv1, replication.WRITE_ROWS_EVENTv2:
+            fmt.Println("  ➡️ INSERT:")
+            tableStructure, _ := getTableStructure(getDumpTableStructureFilePath(eventTableName))
+            bulkInsertBinlogRowsToElastic(e.Rows, tableStructure, eventTableName)
+        case replication.UPDATE_ROWS_EVENTv1, replication.UPDATE_ROWS_EVENTv2:
+            fmt.Println("  🔄 UPDATE:")
+            fmt.Println(e.ColumnBitmap2)
+            // For UPDATE events, e.Rows contains pairs of [before-image, after-image]
+            // The length of e.Rows will be N*2, where N is the number of updated rows.
+            tableStructure, _ := getTableStructure(getDumpTableStructureFilePath(eventTableName))
+            var afterDocs [][]interface{}
+            for i := 0; i < len(e.Rows); i += 2 {
+                afterValues := e.Rows[i+1]
+                afterDocs = append(afterDocs, afterValues)
+            }
+            bulkUpdateBinlogRowsToElastic(afterDocs, tableStructure, eventTableName)
+        case replication.DELETE_ROWS_EVENTv1, replication.DELETE_ROWS_EVENTv2:
+            fmt.Println("  🗑️ DELETE:")
+            tableStructure, _ := getTableStructure(getDumpTableStructureFilePath(eventTableName))
+            bulkDeleteBinlogRowsFromElastic(e.Rows, tableStructure, eventTableName)
+        }
+    case *replication.QueryEvent:
+    // DDL changes, etc.
+    default:
+    }
+    WriteBinlogPosition(*currentBinlogPos, "main") // Update the position after rotation
+    return true
 }

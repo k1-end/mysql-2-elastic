@@ -1,0 +1,57 @@
+services:
+  db:
+    image: hub.hamdocker.ir/mysql:8.0.33
+    cap_add:
+      - SYS_NICE
+    restart: unless-stopped
+    environment:
+      - MYSQL_DATABASE=test_database
+      - MYSQL_ROOT_PASSWORD=password
+    ports:
+      - '3311:3306'
+    volumes:
+      - db-mysql:/var/lib/mysql
+
+  phpmyadmin:
+    image: hub.hamdocker.ir/phpmyadmin/phpmyadmin
+    depends_on:
+      - db
+    restart: unless-stopped
+    ports:
+      - 8889:80
+    environment:
+      PMA_HOST: db
+
+  elastic:
+    image: docker.arvancloud.ir/elasticsearch:7.8.1
+    restart: unless-stopped
+    ports:
+      - "9206:9200"
+      - "9306:9300"
+    volumes:
+      - "./elasticsearch-config.yml:/usr/share/elasticsearch/config/elasticsearch.yml"
+      - db-elastic:/usr/share/elasticsearch/data
+    environment:
+      ELASTIC_PASSWORD: "password"
+      discovery.type: single-node
+      ES_JAVA_OPTS: -Xms512m -Xmx4096m
+
+  kibana:
+    image: docker.arvancloud.ir/kibana:7.8.1
+    restart: unless-stopped
+    depends_on:
+      - elastic
+    ports:
+      - "5606:5601"
+    volumes:
+      - "./kibana-config.yml:/usr/share/kibana/config/kibana.yml"
+    environment:
+      KIBANA_SYSTEM_PASSWORD: "password"
+      ELASTICSEARCH_HOSTS: http://elastic:9200
+
+volumes:
+  db-mysql:
+    driver: local
+  db-elastic:
+    driver: local
+

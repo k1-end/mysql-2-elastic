@@ -9,6 +9,7 @@
     "server_id": 100
   },
   "mysql_dump_path": "path_to_mysqldump_binary",
+  "world_database_path": "world.sql",
   "elastic": {
       "address": "http://localhost:9200",
       "username": "elastic",

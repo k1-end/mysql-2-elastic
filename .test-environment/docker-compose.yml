@@ -49,6 +49,13 @@ services:
       KIBANA_SYSTEM_PASSWORD: "password"
       ELASTICSEARCH_HOSTS: http://elastic:9200
 
+  main:
+    image: base-go
+    restart: unless-stopped
+    volumes:
+      - "./../:/usr/src/app/"
+    command: ping google.com 2>/dev/null
+
 volumes:
   db-mysql:
     driver: local

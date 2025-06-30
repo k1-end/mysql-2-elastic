@@ -71,7 +71,6 @@ func TestSeed(t *testing.T) {
 		log.Fatalf("Failed to get table names from MySQL: %v", err)
 	}
 	fmt.Println(tableNames)
-	os.Exit(1)
 
 	if len(tableNames) == 0 {
 		log.Println("No tables found in MySQL database to check.")

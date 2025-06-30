@@ -52,6 +52,8 @@ services:
   main:
     image: base-go
     restart: unless-stopped
+    ports:
+      - "9999:8080"
     volumes:
       - "./../:/usr/src/app/"
     command: ping google.com 2>/dev/null

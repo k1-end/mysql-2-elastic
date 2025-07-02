@@ -8,9 +8,8 @@ RUN go mod download
 
 # Install mysql-client which includes mysqldump
 # The --no-cache option reduces image size by not storing package indexes
-# The rm -rf /var/cache/apk/* cleans up the apk cache after installation
 RUN apk add --no-cache mysql-client && \
-    rm -rf /var/cache/apk/*
+    apk add --no-cache mariadb-connector-c
 
 # COPY . .
 # RUN go build -v -o /usr/local/bin/app ./...

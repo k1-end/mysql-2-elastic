@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"slices"
@@ -40,7 +39,7 @@ func main()  {
 
 func sendRestartSignal(w http.ResponseWriter, r *http.Request) {
     fmt.Fprintf(w, "Hello, World!")
-    RestartChannel<- true
+    // RestartChannel<- true
 }
 
 func runTheSyncer() {
@@ -89,38 +88,24 @@ func runTheSyncer() {
 
 func processTables(registeredTables map[string]RegisteredTable) {
     for _, table := range registeredTables {
-        switch table.Status {
-        case "created":
-            fmt.Println("Status: Created")
+		if table.Status == "created" || table.Status == "dumping" {
+            fmt.Println(table.Status)
             ClearIncompleteDumpedData(table.Name)
             InitialDump(table.Name)
+			table.Status = GetRegisteredTables()[table.Name].Status
+		}
+
+		if table.Status == "dumped" || table.Status == "moving" {
+            fmt.Println(table.Status)
             SendDataToElasticFromDumpfile(table.Name)
-            SyncWithTheMainLoop(table.Name)
-        case "dumping":
-            fmt.Println("Status: Dumping")
-            ClearIncompleteDumpedData(table.Name)
-            InitialDump(table.Name)
-            SendDataToElasticFromDumpfile(table.Name)
-            SyncWithTheMainLoop(table.Name)
-        case "dumped":
-            fmt.Println("Status: Dumped")
-            SendDataToElasticFromDumpfile(table.Name)
-            SyncWithTheMainLoop(table.Name)
-        case "moving":
-            fmt.Println("Status: Moving")
-            SendDataToElasticFromDumpfile(table.Name)
-            SyncWithTheMainLoop(table.Name)
-        case "moved":
-            fmt.Println("Status: Moved")
-            err := SyncWithTheMainLoop(table.Name)
-            if err != nil {
-                log.Fatalf("Error syncing with the main loop for table %s: %v", table.Name, err)
-            }
-        case "syncing":
-            continue
-        default:
-            log.Fatalf("Unknown status for table %s: %s\n", table.Name, table.Status)
-        }
+			table.Status = GetRegisteredTables()[table.Name].Status
+		}
+
+		if table.Status == "moved" {
+            fmt.Println(table.Status)
+			SyncWithTheMainLoop(table.Name)
+			table.Status = GetRegisteredTables()[table.Name].Status
+		}
     }
 }
 

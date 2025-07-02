@@ -304,6 +304,7 @@ func InitialDump(tableName string) error{
     SetTableStatus(tableName, "dumping")
 
     args := []string{
+        "--skip-ssl-verify",
 		"--single-transaction",
 		"--master-data=2",
 		fmt.Sprintf("--user=%s", AppConfiguration.Database.Username),

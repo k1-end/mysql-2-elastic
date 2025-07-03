@@ -29,7 +29,7 @@ func createDirectoryIfNotExists(path string) error {
 
 	if exists {
 		// Directory already exists, do nothing
-		fmt.Printf("Directory '%s' already exists. Doing nothing.\n", path)
+		MainLogger.Debug(fmt.Sprintf("Directory '%s' already exists. Doing nothing.\n", path))
 		return nil
 	}
 
@@ -44,6 +44,6 @@ func createDirectoryIfNotExists(path string) error {
 		return fmt.Errorf("failed to create directory '%s': %w", path, err)
 	}
 
-	fmt.Printf("Directory '%s' created successfully.\n", path)
+	MainLogger.Debug(fmt.Sprintf("Directory '%s' created successfully.\n", path))
 	return nil
 }

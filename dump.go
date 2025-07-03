@@ -50,25 +50,29 @@ type Config struct {
 }
 
 func init() {
+	MainLogger = NewLogger()
 	viper.SetConfigName("config")
 	viper.SetConfigType("json")
 	viper.AddConfigPath(".") // Look in the current directory
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
-			fmt.Println("Warning: config.json not found. Using defaults or environment variables.")
+			MainLogger.Error("Warning: config.json not found. Using defaults or environment variables.")
+			panic(err)
 		} else {
-			log.Fatalf("Fatal error reading config file: %v", err)
+			MainLogger.Error(fmt.Sprintf("Fatal error reading config file: %v", err))
+			panic(err)
 		}
 	}
 
 	if err := viper.Unmarshal(&AppConfiguration); err != nil {
-		log.Fatalf("Unable to decode config into struct: %v", err)
+		MainLogger.Error(fmt.Sprintf("Unable to decode config into struct: %v", err))
+		panic(err)
 	}
 
 	if err := viper.Unmarshal(&AppConfiguration); err != nil {
-		log.Fatalf("Unable to decode config into struct after env binding: %v", err)
+		MainLogger.Error(fmt.Sprintf("Unable to decode config into struct after env binding: %v", err))
+		panic(err)
 	}
-	MainLogger = NewLogger()
 }
 
 var AppConfiguration Config // Global variable to hold your configuration
@@ -298,7 +302,7 @@ func InitialDump(tableName string) error{
     if !exists {
         return fmt.Errorf("table %s not found in registered tables", tableName)
     }
-    fmt.Println("Dumping table: ", table.Name)
+	MainLogger.Debug("Dumping table: " + table.Name)
     if table.Status != "created" {
         return fmt.Errorf("table %s is not in the created state", table.Name)
     }
@@ -318,7 +322,7 @@ func InitialDump(tableName string) error{
 	}
 
 	args = append(args, []string{table.Name}...)
-    fmt.Println(args)
+	MainLogger.Debug(strings.Join(args[:], " "))
     ctx := context.Background()
 	cmd := exec.CommandContext(
 		ctx,
@@ -349,7 +353,7 @@ func InitialDump(tableName string) error{
     // Read stderr to log any mysqldump errors
 	errScanner := bufio.NewScanner(errPipe)
 	for errScanner.Scan() {
-		log.Printf("mysqldump stderr: %s", errScanner.Text())
+		MainLogger.Debug(fmt.Sprintf("mysqldump stderr: %s", errScanner.Text()))
 	}
 
 	if err := cmd.Wait(); err != nil {
@@ -357,7 +361,7 @@ func InitialDump(tableName string) error{
 	}
 
     SetTableStatus(tableName, "dumped")
-    fmt.Println("Dump completed successfully.")
+	MainLogger.Debug("Dump completed successfully.")
 
     return nil
 }

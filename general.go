@@ -11,10 +11,11 @@ import (
 
 func isServerFree() bool {
 	jsonFile, err := os.Open("data/status.json")
-	defer jsonFile.Close()
 	if err != nil {
-		fmt.Println(err)
+		MainLogger.Debug(err.Error())
+		panic(err)
 	}
+	defer jsonFile.Close()
 	byteValue, _ := io.ReadAll(jsonFile)
 
 	var status map[string]interface{}

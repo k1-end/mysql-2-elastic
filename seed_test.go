@@ -9,6 +9,7 @@ import (
 	"os"
 	"reflect"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -60,31 +61,30 @@ func TestSeed(t *testing.T) {
 	if err != nil {
 		log.Fatalf("Error pinging Elasticsearch: %v", err)
 	}
-	log.Printf("Successfully connected to Elasticsearch. Version: %s, Code: %d\n", info.Version.Number, code)
-	fmt.Println(info)
+	MainLogger.Debug(fmt.Sprintf("Successfully connected to Elasticsearch. Version: %s, Code: %d\n", info.Version.Number, code))
 
 	// --- 4. Get List of Tables from MySQL ---
 	// You might want to specify which tables to check explicitly instead of all.
 	// For this example, we'll get all non-system tables.
 	tableNames, err := getTableNames(mysqlDB)
 	if err != nil {
-		log.Fatalf("Failed to get table names from MySQL: %v", err)
+		MainLogger.Debug(fmt.Sprintf("Failed to get table names from MySQL: %v", err))
 	}
-	fmt.Println(tableNames)
+	MainLogger.Debug(strings.Join(tableNames[:], ", "))
 
 	if len(tableNames) == 0 {
-		log.Println("No tables found in MySQL database to check.")
+		MainLogger.Debug("No tables found in MySQL database to check.")
 		return
 	}
 
-	log.Printf("Found %d tables in MySQL: %v\n", len(tableNames), tableNames)
+	MainLogger.Debug(fmt.Sprintf("Found %d tables in MySQL: %v\n", len(tableNames), tableNames))
 
 	// --- 5. Iterate through Tables and Verify Data ---
 	totalVerifiedRows := 0
 	totalMissingRows := 0
 
 	for _, tableName := range tableNames {
-		log.Printf("\n--- Verifying table: %s ---\n", tableName)
+		MainLogger.Debug(fmt.Sprintf("\n--- Verifying table: %s ---\n", tableName))
 
 		// IMPORTANT: Adjust primaryKeyColumnName and elasticsearchIndex/DocumentID logic
 		// to match how your migration program maps MySQL tables/rows to Elasticsearch.
@@ -97,12 +97,12 @@ func TestSeed(t *testing.T) {
 		// Get all rows from the MySQL table
 		mysqlRows, err := getMySQLRows(mysqlDB, tableName, primaryKeyColumnName)
 		if err != nil {
-			log.Printf("Error getting rows from MySQL table %s: %v\n", tableName, err)
+			MainLogger.Debug(fmt.Sprintf("Error getting rows from MySQL table %s: %v\n", tableName, err))
 			continue
 		}
 
 		if len(mysqlRows) == 0 {
-			log.Printf("No rows found in MySQL table '%s'. Skipping verification.\n", tableName)
+			MainLogger.Debug(fmt.Sprintf("No rows found in MySQL table '%s'. Skipping verification.\n", tableName))
 			continue
 		}
 
@@ -114,7 +114,7 @@ func TestSeed(t *testing.T) {
 		for _, mysqlRow := range mysqlRows {
 			primaryKeyValue, ok := mysqlRow[primaryKeyColumnName]
 			if !ok {
-				log.Printf("Warning: Primary key column '%s' not found in row from table '%s'. Skipping row.\n", primaryKeyColumnName, tableName)
+				MainLogger.Debug(fmt.Sprintf("Warning: Primary key column '%s' not found in row from table '%s'. Skipping row.\n", primaryKeyColumnName, tableName))
 				continue
 			}
 
@@ -124,7 +124,7 @@ func TestSeed(t *testing.T) {
 			// Check if the document exists in Elasticsearch
 			exists, err := checkElasticsearchDocument(esClient, elasticsearchIndex, docID)
 			if err != nil {
-				log.Printf("Error checking document %s/%s in Elasticsearch: %v\n", elasticsearchIndex, docID, err)
+				MainLogger.Debug(fmt.Sprintf("Error checking document %s/%s in Elasticsearch: %v\n", elasticsearchIndex, docID, err))
 				// Consider this a failure for reporting purposes
 				tableMissingRows++
 				continue
@@ -140,26 +140,26 @@ func TestSeed(t *testing.T) {
 				// 	log.Printf("  Row with ID '%s' found in ES. Source: %s\n", docID, *getResponse.Source)
 				// }
 
-				log.Printf("  [OK] Row with ID '%s' in table '%s' successfully found in Elasticsearch index '%s'.\n", docID, tableName, elasticsearchIndex)
+				MainLogger.Debug(fmt.Sprintf("  [OK] Row with ID '%s' in table '%s' successfully found in Elasticsearch index '%s'.\n", docID, tableName, elasticsearchIndex))
 				tableVerifiedRows++
 			} else {
-				log.Printf("  [FAIL] Row with ID '%s' in table '%s' IS MISSING from Elasticsearch index '%s'.\n", docID, tableName, elasticsearchIndex)
+				MainLogger.Debug(fmt.Sprintf("  [FAIL] Row with ID '%s' in table '%s' IS MISSING from Elasticsearch index '%s'.\n", docID, tableName, elasticsearchIndex))
 				tableMissingRows++
 			}
 		}
-		log.Printf("--- Summary for table '%s': Verified: %d, Missing: %d ---\n", tableName, tableVerifiedRows, tableMissingRows)
+		MainLogger.Debug(fmt.Sprintf("--- Summary for table '%s': Verified: %d, Missing: %d ---\n", tableName, tableVerifiedRows, tableMissingRows))
 		totalVerifiedRows += tableVerifiedRows
 		totalMissingRows += tableMissingRows
 	}
 
-	log.Printf("\n--- Verification Complete ---")
-	log.Printf("Total Rows Verified: %d\n", totalVerifiedRows)
-	log.Printf("Total Rows Missing in Elasticsearch: %d\n", totalMissingRows)
+	MainLogger.Debug(fmt.Sprintf("\n--- Verification Complete ---"))
+	MainLogger.Debug(fmt.Sprintf("Total Rows Verified: %d\n", totalVerifiedRows))
+	MainLogger.Debug(fmt.Sprintf("Total Rows Missing in Elasticsearch: %d\n", totalMissingRows))
 
 	if totalMissingRows > 0 {
-		log.Println("WARNING: Some rows were found to be missing in Elasticsearch. Please investigate.")
+		MainLogger.Debug("WARNING: Some rows were found to be missing in Elasticsearch. Please investigate.")
 	} else {
-		log.Println("SUCCESS: All checked rows were found in Elasticsearch.")
+		MainLogger.Debug("SUCCESS: All checked rows were found in Elasticsearch.")
 	}
 }
 
@@ -256,11 +256,11 @@ func compareDocuments(mysqlDoc, esDoc map[string]interface{}) bool {
 	for k, v := range mysqlDoc {
 		esVal, ok := esDoc[k]
 		if !ok {
-			log.Printf("  Key '%s' missing in Elasticsearch document.\n", k)
+			MainLogger.Debug(fmt.Sprintf("  Key '%s' missing in Elasticsearch document.\n", k))
 			return false
 		}
 		if !reflect.DeepEqual(v, esVal) {
-			log.Printf("  Value mismatch for key '%s': MySQL='%v', ES='%v'\n", k, v, esVal)
+			MainLogger.Debug(fmt.Sprintf("  Value mismatch for key '%s': MySQL='%v', ES='%v'\n", k, v, esVal))
 			return false
 		}
 	}
@@ -271,7 +271,8 @@ func compareDocuments(mysqlDoc, esDoc map[string]interface{}) bool {
 func prettyPrintJSON(data map[string]interface{}) string {
 	b, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
-		return fmt.Sprintf("Error marshalling JSON: %v", err)
+		MainLogger.Debug(fmt.Sprintf("Error marshalling JSON: %v", err))
+		return err.Error()
 	}
 	return string(b)
 }

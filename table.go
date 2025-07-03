@@ -65,7 +65,7 @@ func getTableStructure(structurePath string) ([]map[string]interface{}, error) {
 
     err = json.Unmarshal(byteValue, &result)
     if err != nil {
-        fmt.Println("Error unmarshalling JSON:", err)
+		MainLogger.Debug("Error unmarshalling JSON:" + err.Error())
         return nil, fmt.Errorf("Failed to unmarshal JSON: %w", err)
     }
     return result, nil

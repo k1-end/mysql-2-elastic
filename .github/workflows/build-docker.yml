@@ -11,6 +11,10 @@ jobs:
     # This condition checks if the commit message contains "docker build" (case-insensitive)
     if: contains(github.event.head_commit.message, 'docker build')
 
+    permissions:
+      contents: read
+      packages: write
+
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4

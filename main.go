@@ -76,11 +76,12 @@ func runTheSyncer() {
 	MainLogger.Debug("Syncing: " + strings.Join(tableNames[:], ","))
     cfg := replication.BinlogSyncerConfig {
         ServerID: uint32(AppConfiguration.Database.ServerId),
-        Flavor:   AppConfiguration.Database.Driver,
-        Host:     AppConfiguration.Database.Host,
-        Port:     uint16(AppConfiguration.Database.Port),
-        User:     AppConfiguration.Database.Username,
+        Flavor  : AppConfiguration.Database.Driver,
+        Host    : AppConfiguration.Database.Host,
+        Port    : uint16(AppConfiguration.Database.Port),
+        User    : AppConfiguration.Database.Username,
         Password: AppConfiguration.Database.Password,
+		Logger  : MainLogger,
     }
 
     syncer := replication.NewBinlogSyncer(cfg)
@@ -341,11 +342,12 @@ func SyncTablesTillDestination(tableNames []string, desBinlogPos, currentBinlogP
 	MainLogger.Debug("Syncing: " + strings.Join(tableNames[:], ","))
     cfg := replication.BinlogSyncerConfig {
         ServerID: uint32(AppConfiguration.Database.ServerId),
-        Flavor:   AppConfiguration.Database.Driver,
-        Host:     AppConfiguration.Database.Host,
-        Port:     uint16(AppConfiguration.Database.Port),
-        User:     AppConfiguration.Database.Username,
+        Flavor  : AppConfiguration.Database.Driver,
+        Host    : AppConfiguration.Database.Host,
+        Port    : uint16(AppConfiguration.Database.Port),
+        User    : AppConfiguration.Database.Username,
         Password: AppConfiguration.Database.Password,
+		Logger  : MainLogger,
     }
 
     syncer := replication.NewBinlogSyncer(cfg)

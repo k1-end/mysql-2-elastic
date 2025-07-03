@@ -300,7 +300,7 @@ func bulkDeleteFromElastic(indexName string, documents []map[string]interface{})
             id = fmt.Sprintf("%d", v)
         default:
             MainLogger.Error(fmt.Sprintf("Unexpected type for ID: %T\n", v))
-			panic(err)
+			panic(nil)
             
         }
         meta := map[string]interface{}{

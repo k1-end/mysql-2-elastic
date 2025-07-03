@@ -50,13 +50,13 @@ services:
       ELASTICSEARCH_HOSTS: http://elastic:9200
 
   main:
-    image: base-go
+    image: ghcr.io/k1-end/mysql-2-elastic
     restart: unless-stopped
     ports:
       - "9999:8080"
     volumes:
       - "./../:/usr/src/app/"
-    command: ping google.com 2>/dev/null
+    command: ping google.com >/dev/null
 
 volumes:
   db-mysql:

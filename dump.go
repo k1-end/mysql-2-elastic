@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -51,6 +50,7 @@ type Config struct {
 
 func init() {
 	MainLogger = NewLogger()
+	MainLogWriter = NewSlogWriter(MainLogger, slog.LevelDebug)
 	viper.SetConfigName("config")
 	viper.SetConfigType("json")
 	viper.AddConfigPath(".") // Look in the current directory
@@ -77,6 +77,7 @@ func init() {
 
 var AppConfiguration Config // Global variable to hold your configuration
 var MainLogger *slog.Logger // Global variable to hold the main logger
+var MainLogWriter *SlogWriter
 
 func writeTableStructureFromDumpfile(tableName string) error {
 

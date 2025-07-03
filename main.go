@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"log/slog"
 	"net/http"
 	"os"
@@ -118,11 +117,13 @@ func processTables(registeredTables map[string]RegisteredTable) error{
 			MainLogger.Debug(table.Name + ": " + table.Status)
 			err := ClearIncompleteDumpedData(table.Name)
 			if err != nil {
-				log.Fatalf("Fatal error ClearIncompleteDumpedData: %v", err)
+				MainLogger.Error(fmt.Sprintf("Fatal error ClearIncompleteDumpedData: %v", err))
+				panic(err)
 			}
             err = InitialDump(table.Name)
 			if err != nil {
-				log.Fatalf("Fatal error InitialDump: %v", err)
+				MainLogger.Error(fmt.Sprintf("Fatal error InitialDump: %v", err))
+				panic(err)
 			}
 			table.Status = GetRegisteredTables()[table.Name].Status
 		}

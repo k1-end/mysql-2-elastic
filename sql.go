@@ -64,8 +64,8 @@ func processInsertString(tableName string, insertStatement string, tableStructur
         for j, expr := range row {
             val, err := extractValue(expr)
             if err != nil {
-                fmt.Printf("Error extracting value for column %d in row %d: %v\n", j+1, i+1, err)
-                continue
+                MainLogger.Error(fmt.Sprintf("Error extracting value for column %d in row %d: %v\n", j+1, i+1, err))
+				panic(err)
             }
             columnName, err := getColumnNameFromPosition(tableStructure, j)
             if err != nil {

@@ -26,7 +26,7 @@ func pushNewTable(tableName string) error {
 }
 
 func addTable(w http.ResponseWriter, r *http.Request) {
-	fmt.Printf("got /add-table request\n")
+	MainLogger.Debug("got /add-table request\n")
 
 	hasTableName := r.URL.Query().Has("table_name")
 	if !hasTableName {
@@ -51,8 +51,7 @@ func addTable(w http.ResponseWriter, r *http.Request) {
 }
 
 func dumpTable(w http.ResponseWriter, r *http.Request) {
-	fmt.Printf("got /dump-table request\n")
-
+	MainLogger.Debug("got /dump-table request\n")
 	hasTableName := r.URL.Query().Has("table_name")
 	if !hasTableName {
 		http.Error(w, "table_name is required", http.StatusUnprocessableEntity)
@@ -72,7 +71,7 @@ func dumpTable(w http.ResponseWriter, r *http.Request) {
 }
 
 func getTable(w http.ResponseWriter, r *http.Request) {
-	fmt.Printf("got /get-table request\n")
+	MainLogger.Debug("got /get-table request\n")
 	hasTableName := r.URL.Query().Has("table_name")
 	if !hasTableName {
 		http.Error(w, "table_name is required", http.StatusUnprocessableEntity)
@@ -98,7 +97,7 @@ func getTable(w http.ResponseWriter, r *http.Request) {
 }
 
 func getAllTable(w http.ResponseWriter, r *http.Request) {
-	fmt.Printf("got /get-all-table request\n")
+	MainLogger.Debug("got /get-all-table request\n")
 	registeredTables := GetRegisteredTables()
 	jsonData, _ := json.Marshal(registeredTables)
 	w.Header().Set("Content-Type", "application/json")

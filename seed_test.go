@@ -5,8 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"log"
-	"os"
 	"reflect"
 	"strconv"
 	"strings"
@@ -20,7 +18,7 @@ import (
 
 func TestSeed(t *testing.T) {
 
-	log.Println("Starting MySQL to Elasticsearch migration verification program...")
+	MainLogger.Debug("Starting MySQL to Elasticsearch migration verification program...")
 
 	// --- 1. Load Configuration ---
 	// In a real application, you might load this from a file or environment variables.
@@ -34,32 +32,36 @@ func TestSeed(t *testing.T) {
 	// --- 2. Connect to MySQL ---
 	mysqlDB, err := sql.Open("mysql", AppConfiguration.Database.Username + ":" + AppConfiguration.Database.Password + "@tcp(" + AppConfiguration.Database.Host + ":" + strconv.FormatInt(int64(AppConfiguration.Database.Port), 10) + ")/" + AppConfiguration.Database.Name + "?parseTime=true")
 	if err != nil {
-		log.Fatalf("Error opening MySQL connection: %v", err)
+		MainLogger.Error(fmt.Sprintf("Error opening MySQL connection: %v", err))
+		panic(err)
 	}
 	defer mysqlDB.Close()
 
 	if err = mysqlDB.Ping(); err != nil {
-		log.Fatalf("Error connecting to MySQL: %v", err)
+		MainLogger.Error(fmt.Sprintf("Error connecting to MySQL: %v", err))
+		panic(err)
 	}
-	log.Println("Successfully connected to MySQL.")
+	MainLogger.Debug("Successfully connected to MySQL.")
 
 	// --- 3. Connect to Elasticsearch ---
 	esClient, err := elastic.NewClient(
 		elastic.SetURL(AppConfiguration.Elastic.Address ),
 		elastic.SetSniff(false), // Disable sniffing for local/single-node setups if needed
 		elastic.SetHealthcheckInterval(10*time.Second),
-		elastic.SetInfoLog(log.New(os.Stdout, "ELASTIC_INFO: ", log.Ldate|log.Ltime|log.Lshortfile)),
-		elastic.SetErrorLog(log.New(os.Stderr, "ELASTIC_ERROR: ", log.Ldate|log.Ltime|log.Lshortfile)),
+		elastic.SetInfoLog(MainLogWriter),
+		elastic.SetErrorLog(MainLogWriter),
 		elastic.SetBasicAuth(AppConfiguration.Elastic.Username, AppConfiguration.Elastic.Password),
 	)
 	if err != nil {
-		log.Fatalf("Error creating Elasticsearch client: %v", err)
+		MainLogger.Error(fmt.Sprintf("Error creating Elasticsearch client: %v", err))
+		panic(err)
 	}
 
 	// Ping the Elasticsearch cluster to ensure connection
 	info, code, err := esClient.Ping(AppConfiguration.Elastic.Address).Do(context.Background())
 	if err != nil {
-		log.Fatalf("Error pinging Elasticsearch: %v", err)
+		MainLogger.Error(fmt.Sprintf("Error pinging Elasticsearch: %v", err))
+		panic(err)
 	}
 	MainLogger.Debug(fmt.Sprintf("Successfully connected to Elasticsearch. Version: %s, Code: %d\n", info.Version.Number, code))
 
@@ -106,7 +108,7 @@ func TestSeed(t *testing.T) {
 			continue
 		}
 
-		log.Printf("Found %d rows in MySQL table '%s'.\n", len(mysqlRows), tableName)
+		MainLogger.Debug("Found %d rows in MySQL table '%s'.\n", len(mysqlRows), tableName)
 
 		tableMissingRows := 0
 		tableVerifiedRows := 0

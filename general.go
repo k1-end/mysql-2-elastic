@@ -49,10 +49,10 @@ func readLastOffset(filePath string) int64 {
     offset, err := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64)
     if err != nil {
         // If conversion error, start from beginning
-        fmt.Fprintf(os.Stderr, "Error parsing offset from %s: %v. Starting from beginning.\n", filePath, err)
-        return 0
+        MainLogger.Error(fmt.Sprintf("Error parsing offset from %s: %v. Starting from beginning.\n", filePath, err))
+		panic(err)
     }
-    fmt.Printf("Resuming from offset: %d\n", offset)
+    MainLogger.Debug(fmt.Sprintf("Resuming from offset: %d\n", offset))
     return offset
 }
 

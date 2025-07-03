@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"slices"
@@ -90,8 +91,14 @@ func processTables(registeredTables map[string]RegisteredTable) {
     for _, table := range registeredTables {
 		if table.Status == "created" || table.Status == "dumping" {
             fmt.Println(table.Status)
-            ClearIncompleteDumpedData(table.Name)
-            InitialDump(table.Name)
+			err := ClearIncompleteDumpedData(table.Name)
+			if err != nil {
+				log.Fatalf("Fatal error ClearIncompleteDumpedData: %v", err)
+			}
+            err = InitialDump(table.Name)
+			if err != nil {
+				log.Fatalf("Fatal error InitialDump: %v", err)
+			}
 			table.Status = GetRegisteredTables()[table.Name].Status
 		}
 

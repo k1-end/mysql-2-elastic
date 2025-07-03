@@ -260,7 +260,7 @@ func GetBinlogCoordinatesFromDumpfile(dumpFilePath string) (BinlogPosition, erro
 		}
 	}
 
-	return BinlogPosition{}, fmt.Errorf("binlog coordinates not found in dump file")
+	return BinlogPosition{}, fmt.Errorf("binlog coordinates not found in dump file " + dumpFilePath)
 }
 
 func WriteDumpfilePosition(tableName string) error {

@@ -3,7 +3,7 @@ name: Docker Image Build
 on:
   push:
     branches:
-      - main # Or whatever branch you want to monitor (e.g., master, develop)
+      - master # Or whatever branch you want to monitor (e.g., master, develop)
 
 jobs:
   build:

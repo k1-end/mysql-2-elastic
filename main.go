@@ -3,11 +3,14 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"slices"
+	"strings"
 
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
@@ -17,22 +20,29 @@ var RestartChannel chan bool
 var DoneChannel chan bool
 
 
-func initializeTables()  {
+func initializeTables()  error{
     
     registeredTables := GetRegisteredTables()
     // Is there any registered tables?
 	if len(registeredTables) == 0 {
-		fmt.Println("No registered tables.\n--- End ---")
-		return
+		return errors.New("No registered tables.\n--- End ---")
 	}
 
-    fmt.Println("Processing table")
-	processTables(registeredTables)
-    fmt.Println("Finished Processing table")
+	MainLogger.Info("Processing table")
+	err := processTables(registeredTables)
+	if err != nil {
+		return err
+	}
+
+	MainLogger.Info("Finished Processing table")
+	return nil
 }
 
 func main()  {
-    initializeTables()
+	err := initializeTables()
+	if err != nil {
+		MainLogger.Error(err.Error())
+	}
     go runTheSyncer()
     http.HandleFunc("/", sendRestartSignal)
     http.ListenAndServe(":8080", nil)
@@ -43,6 +53,19 @@ func sendRestartSignal(w http.ResponseWriter, r *http.Request) {
     // RestartChannel<- true
 }
 
+// NewLogger creates a new structured logger with a JSON handler.
+func NewLogger() *slog.Logger {
+	// Configure the handler to output JSON and include source code location for errors.
+	handlerOptions := &slog.HandlerOptions{
+		AddSource: true, // Add file and line number
+		Level:     slog.LevelDebug, // Set default logging level
+	}
+
+	// Create a JSON handler that writes to stderr.
+	handler := slog.NewJSONHandler(os.Stderr, handlerOptions)
+	return slog.New(handler)
+}
+
 func runTheSyncer() {
     registeredTables := GetRegisteredTables()
     var tableNames []string
@@ -51,7 +74,7 @@ func runTheSyncer() {
             tableNames = append(tableNames, name)
         }
     }
-    fmt.Println("Syncing: ", tableNames)
+	MainLogger.Debug("Syncing: " + strings.Join(tableNames[:], ","))
     cfg := replication.BinlogSyncerConfig {
         ServerID: uint32(AppConfiguration.Database.ServerId),
         Flavor:   AppConfiguration.Database.Driver,
@@ -71,9 +94,8 @@ func runTheSyncer() {
         Pos: currentBinlogPos.Logpos,
     })
     if err != nil {
-        fmt.Println(err)
+		MainLogger.Error(err.Error())
     }
-    fmt.Println(streamer, 73)
 
     for {
         select {
@@ -82,15 +104,18 @@ func runTheSyncer() {
         case <-RestartChannel:
             initializeTables()
         default:
-            processBinlogEvent(streamer, &currentBinlogPos, tableNames)
+            err = processBinlogEvent(streamer, &currentBinlogPos, tableNames)
+			if err != nil {
+				MainLogger.Error(err.Error())
+			}
         }
     }
 }
 
-func processTables(registeredTables map[string]RegisteredTable) {
+func processTables(registeredTables map[string]RegisteredTable) error{
     for _, table := range registeredTables {
 		if table.Status == "created" || table.Status == "dumping" {
-            fmt.Println(table.Status)
+			MainLogger.Debug(table.Name + ": " + table.Status)
 			err := ClearIncompleteDumpedData(table.Name)
 			if err != nil {
 				log.Fatalf("Fatal error ClearIncompleteDumpedData: %v", err)
@@ -103,28 +128,35 @@ func processTables(registeredTables map[string]RegisteredTable) {
 		}
 
 		if table.Status == "dumped" || table.Status == "moving" {
-            fmt.Println(table.Status)
+			MainLogger.Debug(table.Name + ": " + table.Status)
             SendDataToElasticFromDumpfile(table.Name)
 			table.Status = GetRegisteredTables()[table.Name].Status
 		}
 
 		if table.Status == "moved" {
-            fmt.Println(table.Status)
-			SyncWithTheMainLoop(table.Name)
+			MainLogger.Debug(table.Name + ": " + table.Status)
+			err := SyncWithTheMainLoop(table.Name)
+			if err != nil {
+				return err
+			}
 			table.Status = GetRegisteredTables()[table.Name].Status
 		}
     }
+	return nil
 }
 
 func SyncWithTheMainLoop(tableName string) error{
-    fmt.Println("Syncing with the main loop for table:", tableName)
+	MainLogger.Debug("Syncing with the main loop for table: " + tableName)
     tableBinlogPos, err := GetBinlogCoordinates(tableName)
     if err != nil {
         tableBinlogPos, err = GetBinlogCoordinatesFromDumpfile(GetDumpFilePath(tableName))
         if err != nil {
             return fmt.Errorf("failed to parse binlog coordinates from dump file: %w", err)
         }
-        WriteDumpfilePosition(tableName) // for safety
+        err = WriteDumpfilePosition(tableName) // for safety
+		if err != nil {
+			return fmt.Errorf("failed to write dump file position: %w", err)
+		}
     }
 
     mainBinlogPos, err := GetBinlogCoordinates("main")
@@ -135,7 +167,7 @@ func SyncWithTheMainLoop(tableName string) error{
 
     if GetNewerBinlogPosition(mainBinlogPos, tableBinlogPos) == mainBinlogPos  && mainBinlogPos != tableBinlogPos{
         // Main binlog is newer, so we need to sync the dump file with the main binlog
-        fmt.Println("Main binlog is newer than dump file. Syncing dump file with main binlog...")
+		MainLogger.Debug("Main binlog is newer than dump file. Syncing dump file with main binlog...")
         err = SyncTableUntileDestination(tableName, mainBinlogPos)
         if err != nil {
             return fmt.Errorf("failed to sync table until destination: %w", err)
@@ -143,16 +175,16 @@ func SyncWithTheMainLoop(tableName string) error{
     }
 
     if GetNewerBinlogPosition(mainBinlogPos, tableBinlogPos) == tableBinlogPos  && mainBinlogPos != tableBinlogPos{
-        fmt.Println("Dump file is newer than main binlog. Syncing main binlog with dump file...")
+		MainLogger.Debug("Dump file is newer than main binlog. Syncing main binlog with dump file...")
         err = SyncMainBinlogWithDumpFile(tableBinlogPos)
         if err != nil {
             return fmt.Errorf("failed to sync table until destination: %w", err)
         }
     }
-    fmt.Println("Sync completed for table:", tableName)
+	MainLogger.Debug("Sync completed for table:" + tableName)
     err = SetTableStatus(tableName, "syncing")
     if err != nil {
-        return fmt.Errorf("failed to sync table until destination: %w", err)
+        return fmt.Errorf("set table status %s: %w", tableName, err)
     }
     return nil
 }
@@ -169,7 +201,7 @@ func GetBinlogCoordinates(tableName string) (BinlogPosition, error) {
 }
 
 func SyncTableUntileDestination(tableName string, desBinlogPos BinlogPosition) error {
-    fmt.Println("Syncing table:", tableName)
+	MainLogger.Debug("Syncing table:" + tableName)
 
     currentBinlogPos, err := ParseBinlogCoordinatesFile(GetDumpBinlogPositionFilePath(tableName))
     if err != nil {
@@ -238,9 +270,9 @@ func bulkUpdateBinlogRowsToElastic(rows [][]interface{}, tableStructure []map[st
         values = append(values, singleRecord)
     }
 
-    bulkUpdateToElastic(tableName, values)
+	err := bulkUpdateToElastic(tableName, values)
 
-    return nil
+    return err
 }
 
 
@@ -267,7 +299,7 @@ func bulkDeleteBinlogRowsFromElastic(rows [][]interface{}, tableStructure []map[
 }
 
 func SyncMainBinlogWithDumpFile(desBinlogPos BinlogPosition) error {
-    fmt.Println("Syncing main loop")
+	MainLogger.Debug("Syncing main loop")
     currentBinlogPos, err := GetBinlogCoordinates("main")
     if err != nil {
         return fmt.Errorf("failed to parse binlog coordinates from dump file: %w", err)
@@ -281,9 +313,9 @@ func SyncMainBinlogWithDumpFile(desBinlogPos BinlogPosition) error {
             synchingTableNames = append(synchingTableNames, name)
         }
     }
-    SyncTablesTillDestination(synchingTableNames, desBinlogPos, currentBinlogPos)
+    err = SyncTablesTillDestination(synchingTableNames, desBinlogPos, currentBinlogPos)
 
-    return nil
+    return err
 }
 
 // If both args are equal, the first one will be returned
@@ -305,7 +337,7 @@ func GetNewerBinlogPosition(pos1, pos2 BinlogPosition) BinlogPosition {
 
 
 func SyncTablesTillDestination(tableNames []string, desBinlogPos, currentBinlogPos BinlogPosition) error {
-    fmt.Println("Syncing: ", tableNames)
+	MainLogger.Debug("Syncing: " + strings.Join(tableNames[:], ","))
     cfg := replication.BinlogSyncerConfig {
         ServerID: uint32(AppConfiguration.Database.ServerId),
         Flavor:   AppConfiguration.Database.Driver,
@@ -324,40 +356,49 @@ func SyncTablesTillDestination(tableNames []string, desBinlogPos, currentBinlogP
     })
 
     for GetNewerBinlogPosition(currentBinlogPos, desBinlogPos) == desBinlogPos  && desBinlogPos != currentBinlogPos{
-        processBinlogEvent(streamer, &currentBinlogPos, tableNames)
+		err := processBinlogEvent(streamer, &currentBinlogPos, tableNames)
+		if err != nil {
+			return err
+		}
     }
 
     return nil
 }
 
-func processBinlogEvent(streamer *replication.BinlogStreamer, currentBinlogPos *BinlogPosition, tableNames []string) bool{
+func processBinlogEvent(streamer *replication.BinlogStreamer, currentBinlogPos *BinlogPosition, tableNames []string) error {
+	if currentBinlogPos == nil {
+		return errors.New("nil pointer to currentBinlogPos")
+	}
     ev, _ := streamer.GetEvent(context.Background())
+	if ev == nil {
+		return errors.New("nil pointer to event")
+	}
     currentBinlogPos.Logpos = uint32(ev.Header.LogPos) // Update the current position from the event header
     //print position get from event
     switch e := ev.Event.(type) {
     case *replication.RotateEvent:
         currentBinlogPos.Logfile = string(e.NextLogName)
-        fmt.Printf("🔄 Binlog rotated to: %s at position %d\n", currentBinlogPos.Logfile, currentBinlogPos.Logpos)
+		MainLogger.Debug(fmt.Sprintf("🔄 Binlog rotated to: %s at position %d\n", currentBinlogPos.Logfile, currentBinlogPos.Logpos))
 
     case *replication.RowsEvent:
         // This event contains the row data for INSERT, UPDATE, DELETE
         eventTableName := string(e.Table.Table) // Get table name from the event
         if !slices.Contains(tableNames, eventTableName) {
             WriteBinlogPosition(*currentBinlogPos, "main") // Update the position after rotation
-            return false
+            return nil
         }
         schemaName := string(e.Table.Schema) // Get schema name
 
-        fmt.Printf("ROW EVENT for %s.%s\n", schemaName, eventTableName)
+		MainLogger.Debug(fmt.Sprintf("ROW EVENT for %s.%s\n", schemaName, eventTableName))
 
         switch ev.Header.EventType {
         case replication.WRITE_ROWS_EVENTv1, replication.WRITE_ROWS_EVENTv2:
-            fmt.Println("  ➡️ INSERT:")
+			MainLogger.Debug("  ➡️ INSERT:")
             tableStructure, _ := getTableStructure(getDumpTableStructureFilePath(eventTableName))
             bulkInsertBinlogRowsToElastic(e.Rows, tableStructure, eventTableName)
         case replication.UPDATE_ROWS_EVENTv1, replication.UPDATE_ROWS_EVENTv2:
-            fmt.Println("  🔄 UPDATE:")
-            fmt.Println(e.ColumnBitmap2)
+			MainLogger.Debug("  🔄 UPDATE:")
+			MainLogger.Debug(string(e.ColumnBitmap2))
             // For UPDATE events, e.Rows contains pairs of [before-image, after-image]
             // The length of e.Rows will be N*2, where N is the number of updated rows.
             tableStructure, _ := getTableStructure(getDumpTableStructureFilePath(eventTableName))
@@ -366,9 +407,12 @@ func processBinlogEvent(streamer *replication.BinlogStreamer, currentBinlogPos *
                 afterValues := e.Rows[i+1]
                 afterDocs = append(afterDocs, afterValues)
             }
-            bulkUpdateBinlogRowsToElastic(afterDocs, tableStructure, eventTableName)
+			err := bulkUpdateBinlogRowsToElastic(afterDocs, tableStructure, eventTableName)
+			if err != nil {
+				return err
+			}
         case replication.DELETE_ROWS_EVENTv1, replication.DELETE_ROWS_EVENTv2:
-            fmt.Println("  🗑️ DELETE:")
+			MainLogger.Debug("  🗑️ DELETE:")
             tableStructure, _ := getTableStructure(getDumpTableStructureFilePath(eventTableName))
             bulkDeleteBinlogRowsFromElastic(e.Rows, tableStructure, eventTableName)
         }
@@ -377,5 +421,5 @@ func processBinlogEvent(streamer *replication.BinlogStreamer, currentBinlogPos *
     default:
     }
     WriteBinlogPosition(*currentBinlogPos, "main") // Update the position after rotation
-    return true
+    return nil
 }

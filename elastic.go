@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -151,9 +152,7 @@ func bulkUpdateToElastic(indexName string, documents []map[string]interface{}) e
             // If the ID is an int, convert it to string
             id = fmt.Sprintf("%d", v)
         default:
-            fmt.Printf("Unexpected type for ID: %T\n", v)
-            os.Exit(1)
-            
+			return errors.New(fmt.Sprintf("Unexpected type for ID: %T\n", v))
         }
 
         meta := map[string]interface{}{

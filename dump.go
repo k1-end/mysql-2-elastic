@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"log/slog"
 	"os"
 	"os/exec"
 	"regexp"
@@ -67,9 +68,11 @@ func init() {
 	if err := viper.Unmarshal(&AppConfiguration); err != nil {
 		log.Fatalf("Unable to decode config into struct after env binding: %v", err)
 	}
+	MainLogger = NewLogger()
 }
 
 var AppConfiguration Config // Global variable to hold your configuration
+var MainLogger *slog.Logger // Global variable to hold the main logger
 
 func writeTableStructureFromDumpfile(tableName string) error {
 

@@ -19,18 +19,21 @@ type RegisteredTable struct {
 func GetRegisteredTables() map[string]RegisteredTable {
 	file, err := os.Open(registeredTablesFilePath)
 	if err != nil {
+		MainLogger.Error(err.Error())
 		panic(err)
 	}
 	defer file.Close()
 
 	byteValue, err := io.ReadAll(file)
 	if err != nil {
+		MainLogger.Error(err.Error())
 		panic(err)
 	}
 
 	var tables map[string]RegisteredTable
 	err = json.Unmarshal(byteValue, &tables)
 	if err != nil {
+		MainLogger.Error(err.Error())
 		panic(err)
 	}
 

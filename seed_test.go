@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"os"
 	"reflect"
 	"strconv"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
+	"github.com/k1-end/mysql-elastic-go/internal/config"
 	"github.com/olivere/elastic/v7"
 )
 
@@ -28,9 +30,14 @@ func TestSeed(t *testing.T) {
 	// 	MySQLDSN:       "root:password@tcp(127.0.0.1:3306)/your_mysql_db?parseTime=true", // Example DSN
 	// 	ElasticsearchURL: "http://localhost:9200",                                    // Example ES URL
 	// }
+	appConfig, err := config.LoadConfig()
+	if err != nil {
+		MainLogger.Error(fmt.Sprintf("Fatal error: could not load config %v", err))
+		os.Exit(1)
+	}
 
 	// --- 2. Connect to MySQL ---
-	mysqlDB, err := sql.Open("mysql", AppConfiguration.Database.Username + ":" + AppConfiguration.Database.Password + "@tcp(" + AppConfiguration.Database.Host + ":" + strconv.FormatInt(int64(AppConfiguration.Database.Port), 10) + ")/" + AppConfiguration.Database.Name + "?parseTime=true")
+	mysqlDB, err := sql.Open("mysql", appConfig.Database.Username + ":" + appConfig.Database.Password + "@tcp(" + appConfig.Database.Host + ":" + strconv.FormatInt(int64(appConfig.Database.Port), 10) + ")/" + appConfig.Database.Name + "?parseTime=true")
 	if err != nil {
 		MainLogger.Error(fmt.Sprintf("Error opening MySQL connection: %v", err))
 		panic(err)
@@ -45,12 +52,12 @@ func TestSeed(t *testing.T) {
 
 	// --- 3. Connect to Elasticsearch ---
 	esClient, err := elastic.NewClient(
-		elastic.SetURL(AppConfiguration.Elastic.Address ),
+		elastic.SetURL(appConfig.Elastic.Address ),
 		elastic.SetSniff(false), // Disable sniffing for local/single-node setups if needed
 		elastic.SetHealthcheckInterval(10*time.Second),
 		elastic.SetInfoLog(MainLogWriter),
 		elastic.SetErrorLog(MainLogWriter),
-		elastic.SetBasicAuth(AppConfiguration.Elastic.Username, AppConfiguration.Elastic.Password),
+		elastic.SetBasicAuth(appConfig.Elastic.Username, appConfig.Elastic.Password),
 	)
 	if err != nil {
 		MainLogger.Error(fmt.Sprintf("Error creating Elasticsearch client: %v", err))
@@ -58,7 +65,7 @@ func TestSeed(t *testing.T) {
 	}
 
 	// Ping the Elasticsearch cluster to ensure connection
-	info, code, err := esClient.Ping(AppConfiguration.Elastic.Address).Do(context.Background())
+	info, code, err := esClient.Ping(appConfig.Elastic.Address).Do(context.Background())
 	if err != nil {
 		MainLogger.Error(fmt.Sprintf("Error pinging Elasticsearch: %v", err))
 		panic(err)

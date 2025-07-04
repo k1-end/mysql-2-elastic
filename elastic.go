@@ -10,9 +10,10 @@ import (
 
 	"github.com/elastic/go-elasticsearch/v7"
 	"github.com/elastic/go-elasticsearch/v7/esapi"
+	"github.com/k1-end/mysql-elastic-go/internal/config"
 )
 
-func bulkSendToElastic(indexName string, documents []map[string]interface{}) error{
+func bulkSendToElastic(indexName string, documents []map[string]interface{}, appConfig *config.Config) error{
     if len(documents) == 0 {
         return fmt.Errorf("no documents to index")
     }
@@ -56,10 +57,10 @@ func bulkSendToElastic(indexName string, documents []map[string]interface{}) err
 
     cfg := elasticsearch.Config{
         Addresses: []string{
-            AppConfiguration.Elastic.Address,
+            appConfig.Elastic.Address,
         },
-        Username: AppConfiguration.Elastic.Username,
-        Password: AppConfiguration.Elastic.Password,
+        Username: appConfig.Elastic.Username,
+        Password: appConfig.Elastic.Password,
     }
     es, err := elasticsearch.NewClient(cfg)
     
@@ -107,16 +108,16 @@ func bulkSendToElastic(indexName string, documents []map[string]interface{}) err
     return nil
 }
 
-func bulkUpdateToElastic(indexName string, documents []map[string]interface{}) error{
+func bulkUpdateToElastic(indexName string, documents []map[string]interface{}, appConfig *config.Config) error{
     if len(documents) == 0 {
         return fmt.Errorf("no documents to index")
     }
     cfg := elasticsearch.Config{
         Addresses: []string{
-            AppConfiguration.Elastic.Address,
+            appConfig.Elastic.Address,
         },
-        Username: AppConfiguration.Elastic.Username,
-        Password: AppConfiguration.Elastic.Password,
+        Username: appConfig.Elastic.Username,
+        Password: appConfig.Elastic.Password,
     }
 	es, err := elasticsearch.NewClient(cfg)
 	if err != nil {
@@ -254,14 +255,14 @@ func bulkUpdateToElastic(indexName string, documents []map[string]interface{}) e
 }
 
 
-func bulkDeleteFromElastic(indexName string, documents []map[string]interface{}) error {
+func bulkDeleteFromElastic(indexName string, documents []map[string]interface{}, appConfig *config.Config) error {
 
     cfg := elasticsearch.Config{
         Addresses: []string{
-            AppConfiguration.Elastic.Address,
+            appConfig.Elastic.Address,
         },
-        Username: AppConfiguration.Elastic.Username,
-        Password: AppConfiguration.Elastic.Password,
+        Username: appConfig.Elastic.Username,
+        Password: appConfig.Elastic.Password,
     }
 	es, err := elasticsearch.NewClient(cfg)
 	if err != nil {

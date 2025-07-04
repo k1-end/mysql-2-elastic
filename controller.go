@@ -64,7 +64,7 @@ func dumpTable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	go InitialDump(tableName)
+	// go InitialDump(tableName, ap)
 	io.WriteString(w, "Table dump started successfully")
 	w.WriteHeader(http.StatusOK)
 	return

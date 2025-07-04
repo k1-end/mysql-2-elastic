@@ -14,10 +14,10 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/k1-end/mysql-elastic-go/internal/config"
 	"github.com/pingcap/tidb/pkg/parser"
 	"github.com/pingcap/tidb/pkg/parser/ast"
 	_ "github.com/pingcap/tidb/pkg/parser/test_driver" // Required for the parser to work
-	"github.com/spf13/viper"
 )
 
 type ColumnData struct {
@@ -26,56 +26,13 @@ type ColumnData struct {
     Position int `json:"position"`
 }
 
-type DatabaseConfig struct {
-	Driver   string `mapstructure:"driver"`
-	Host     string `mapstructure:"host"`
-	Port     int    `mapstructure:"port"`
-	ServerId int    `mapstructure:"server_id"`
-	Name     string `mapstructure:"name"`
-	Username string `mapstructure:"username"`
-	Password string `mapstructure:"password"`
-}
-
-type ElasticConfig struct {
-    Address string `mapstructure:"address"`
-    Username string `mapstructure:"username"`
-    Password string `mapstructure:"password"`
-}
-
-type Config struct {
-	Database DatabaseConfig `mapstructure:"database"`
-    Elastic ElasticConfig `mapstructure:"elastic"`
-    MysqlDumpPath string `mapstructure:"mysqldump_path"`
-}
 
 func init() {
 	MainLogger = NewLogger()
 	MainLogWriter = NewSlogWriter(MainLogger, slog.LevelDebug)
-	viper.SetConfigName("config")
-	viper.SetConfigType("json")
-	viper.AddConfigPath(".") // Look in the current directory
-	if err := viper.ReadInConfig(); err != nil {
-		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
-			MainLogger.Error("Warning: config.json not found. Using defaults or environment variables.")
-			panic(err)
-		} else {
-			MainLogger.Error(fmt.Sprintf("Fatal error reading config file: %v", err))
-			panic(err)
-		}
-	}
 
-	if err := viper.Unmarshal(&AppConfiguration); err != nil {
-		MainLogger.Error(fmt.Sprintf("Unable to decode config into struct: %v", err))
-		panic(err)
-	}
-
-	if err := viper.Unmarshal(&AppConfiguration); err != nil {
-		MainLogger.Error(fmt.Sprintf("Unable to decode config into struct after env binding: %v", err))
-		panic(err)
-	}
 }
 
-var AppConfiguration Config // Global variable to hold your configuration
 var MainLogger *slog.Logger // Global variable to hold the main logger
 var MainLogWriter *SlogWriter
 
@@ -118,7 +75,7 @@ func writeTableStructureFromDumpfile(tableName string) error {
 	return nil
 }
 
-func SendDataToElasticFromDumpfile(tableName string) error {
+func SendDataToElasticFromDumpfile(tableName string, appConfig *config.Config) error {
 	dumpFilePath := GetDumpFilePath(tableName)
 	progressFile := getDumpReadProgressFilePath(tableName)
 
@@ -153,7 +110,7 @@ func SendDataToElasticFromDumpfile(tableName string) error {
 
 		if strings.HasPrefix(line, "INSERT INTO") && strings.HasSuffix(line, ";") {
 
-			err = processInsertString(tableName, line, tableStructure)
+			err = processInsertString(tableName, line, tableStructure, appConfig)
 			if err != nil {
 				return err
 			}
@@ -167,7 +124,7 @@ func SendDataToElasticFromDumpfile(tableName string) error {
 			if strings.HasSuffix(line, ";") {
 				insertStatement := currentStatement.String()
 
-				err = processInsertString(tableName, insertStatement, tableStructure)
+				err = processInsertString(tableName, insertStatement, tableStructure, appConfig)
 				if err != nil {
 					return err
 				}
@@ -297,7 +254,7 @@ func GetDumpFilePath(tableName string) (string) {
    return "data/dumps/" + tableName + "/" + tableName + ".sql"
 }
 
-func InitialDump(tableName string) error{
+func InitialDump(tableName string, appConfig *config.Config) error{
     registeredTables := GetRegisteredTables()
     table, exists := registeredTables[tableName]
     if !exists {
@@ -315,11 +272,11 @@ func InitialDump(tableName string) error{
         "--skip-ssl-verify",
 		"--single-transaction",
 		"--master-data=2",
-		fmt.Sprintf("--user=%s", AppConfiguration.Database.Username),
-		fmt.Sprintf("--password=%s", AppConfiguration.Database.Password),
-        fmt.Sprintf("--host=%s", AppConfiguration.Database.Host),
-        fmt.Sprintf("--port=%d", AppConfiguration.Database.Port),
-		AppConfiguration.Database.Name,
+		fmt.Sprintf("--user=%s", appConfig.Database.Username),
+		fmt.Sprintf("--password=%s", appConfig.Database.Password),
+        fmt.Sprintf("--host=%s", appConfig.Database.Host),
+        fmt.Sprintf("--port=%d", appConfig.Database.Port),
+		appConfig.Database.Name,
 	}
 
 	args = append(args, []string{table.Name}...)
@@ -327,7 +284,7 @@ func InitialDump(tableName string) error{
     ctx := context.Background()
 	cmd := exec.CommandContext(
 		ctx,
-		AppConfiguration.MysqlDumpPath,
+		appConfig.MysqlDumpPath,
 		args...,
 	)
 

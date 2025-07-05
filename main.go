@@ -30,7 +30,7 @@ func init() {
 
 }
 
-func main()  {
+func main() {
 	appConfig, err := config.LoadConfig()
 	if err != nil {
 		MainLogger.Error(err.Error())
@@ -268,27 +268,6 @@ func convertBinlogRowsToArrayOfMaps(rows [][]interface{}, tableStructure []map[s
         values = append(values, singleRecord)
     }
 	return values, nil
-}
-
-func bulkInsertBinlogRowsToElastic(rows [][]interface{}, tableStructure []map[string]interface{}, tableName string, esClient *elasticsearch.Client) error {
-    var values []map[string]interface{} 
-    for _, row := range rows {
-        var singleRecord = make(map[string]interface{})
-        for j, val := range row {
-            columnName, err := getColumnNameFromPosition(tableStructure, j)
-            if err != nil {
-                return fmt.Errorf("Error getting column name from position %d: %w", j, err)
-            }
-            singleRecord[columnName] = val
-        }
-        values = append(values, singleRecord)
-    }
-
-    err := bulkSendToElastic(tableName, values, esClient)
-    if err != nil {
-        return fmt.Errorf("Error sending data to Elastic: %w", err)
-    }
-    return nil
 }
 
 func SyncMainBinlogWithDumpFile(desBinlogPos BinlogPosition, esClient *elasticsearch.Client, syncer *replication.BinlogSyncer) error {

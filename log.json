@@ -1,8 +1,0 @@
-{"time":"2025-07-04T17:45:37.057017848Z","level":"DEBUG","source":{"function":"main.getElasticClient","file":"/usr/src/app/elastic.go","line":36},"msg":"Elasticsearch Info:200 OK"}
-{"time":"2025-07-04T17:45:37.057206624Z","level":"INFO","source":{"function":"github.com/go-mysql-org/go-mysql/replication.NewBinlogSyncer","file":"/go/pkg/mod/github.com/go-mysql-org/go-mysql@v1.12.0/replication/binlogsyncer.go","line":188},"msg":"create BinlogSyncer","config":"!ERROR:json: unsupported type: func(*client.Conn) error"}
-{"time":"2025-07-04T17:45:37.058044355Z","level":"INFO","source":{"function":"main.initializeTables","file":"/usr/src/app/main.go","line":33},"msg":"Processing table"}
-{"time":"2025-07-04T17:45:37.058068171Z","level":"INFO","source":{"function":"main.initializeTables","file":"/usr/src/app/main.go","line":39},"msg":"Finished Processing table"}
-{"time":"2025-07-04T17:45:37.058088681Z","level":"DEBUG","source":{"function":"main.main","file":"/usr/src/app/main.go","line":66},"msg":""}
-{"time":"2025-07-04T17:45:37.058400813Z","level":"DEBUG","source":{"function":"main.runTheSyncer","file":"/usr/src/app/main.go","line":101},"msg":"Syncing: country,stores,users,cities,city"}
-{"time":"2025-07-04T17:45:37.058483925Z","level":"INFO","source":{"function":"github.com/go-mysql-org/go-mysql/replication.(*BinlogSyncer).StartSync","file":"/go/pkg/mod/github.com/go-mysql-org/go-mysql@v1.12.0/replication/binlogsyncer.go","line":435},"msg":"begin to sync binlog from position","position":{"Name":"binlog.000025","Pos":157}}
-{"time":"2025-07-04T17:45:37.058896861Z","level":"ERROR","source":{"function":"main.main","file":"/usr/src/app/main.go","line":70},"msg":"listen tcp :8080: bind: address already in use"}

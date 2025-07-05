@@ -111,6 +111,7 @@ func runTheSyncer(appConfig *config.Config, esClient *elasticsearch.Client, sync
         Name: currentBinlogPos.Logfile,
         Pos: currentBinlogPos.Logpos,
     })
+
     if err != nil {
 		MainLogger.Error(err.Error())
 		panic(err)
@@ -123,7 +124,16 @@ func runTheSyncer(appConfig *config.Config, esClient *elasticsearch.Client, sync
         case <-RestartChannel:
             initializeTables(appConfig, esClient, syncer)
         default:
-            err = processBinlogEvent(streamer, &currentBinlogPos, tableNames, esClient)
+
+			ev, err := streamer.GetEvent(context.Background())
+			if err != nil {
+				MainLogger.Error(err.Error())
+				panic(err)
+			}
+			if ev == nil {
+				MainLogger.Error("nil pointer to event")
+			}
+            err = processBinlogEvent(ev, &currentBinlogPos, tableNames, esClient)
 			if err != nil {
 				MainLogger.Error(err.Error())
 			}
@@ -250,6 +260,22 @@ func WriteBinlogPosition(binlogPos BinlogPosition, tableName string) error {
     return nil
 }
 
+func convertBinlogRowsToArrayOfMaps(rows [][]interface{}, tableStructure []map[string]interface{}) ([]map[string]interface{}, error) {
+    var values []map[string]interface{} 
+    for _, row := range rows {
+        var singleRecord = make(map[string]interface{})
+        for j, val := range row {
+            columnName, err := getColumnNameFromPosition(tableStructure, j)
+            if err != nil {
+                return nil, fmt.Errorf("Error getting column name from position %d: %w", j, err)
+            }
+            singleRecord[columnName] = val
+        }
+        values = append(values, singleRecord)
+    }
+	return values, nil
+}
+
 func bulkInsertBinlogRowsToElastic(rows [][]interface{}, tableStructure []map[string]interface{}, tableName string, esClient *elasticsearch.Client) error {
     var values []map[string]interface{} 
     for _, row := range rows {
@@ -267,48 +293,6 @@ func bulkInsertBinlogRowsToElastic(rows [][]interface{}, tableStructure []map[st
     err := bulkSendToElastic(tableName, values, esClient)
     if err != nil {
         return fmt.Errorf("Error sending data to Elastic: %w", err)
-    }
-    return nil
-}
-
-func bulkUpdateBinlogRowsToElastic(rows [][]interface{}, tableStructure []map[string]interface{}, tableName string, esClient *elasticsearch.Client) error {
-    var values []map[string]interface{} 
-    for _, row := range rows {
-        var singleRecord = make(map[string]interface{})
-        for j, val := range row {
-            columnName, err := getColumnNameFromPosition(tableStructure, j)
-            if err != nil {
-                return fmt.Errorf("Error getting column name from position %d: %w", j, err)
-            }
-            singleRecord[columnName] = val
-        }
-        values = append(values, singleRecord)
-    }
-
-	err := bulkUpdateToElastic(tableName, values, esClient)
-
-    return err
-}
-
-
-
-
-func bulkDeleteBinlogRowsFromElastic(rows [][]interface{}, tableStructure []map[string]interface{}, tableName string, esClient *elasticsearch.Client) error {
-    var values []map[string]interface{} 
-    for _, row := range rows {
-        var singleRecord = make(map[string]interface{})
-        for j, val := range row {
-            columnName, err := getColumnNameFromPosition(tableStructure, j)
-            if err != nil {
-                return fmt.Errorf("Error getting column name from position %d: %w", j, err)
-            }
-            singleRecord[columnName] = val
-        }
-        values = append(values, singleRecord)
-    }
-    err := bulkDeleteFromElastic(tableName, values, esClient)
-    if err != nil {
-        return fmt.Errorf("Error deleting data from Elastic: %w", err)
     }
     return nil
 }
@@ -361,8 +345,18 @@ func SyncTablesTillDestination(tableNames []string, desBinlogPos, currentBinlogP
     })
 
     for GetNewerBinlogPosition(currentBinlogPos, desBinlogPos) == desBinlogPos  && desBinlogPos != currentBinlogPos{
-		err := processBinlogEvent(streamer, &currentBinlogPos, tableNames, esClient)
+		ev, err := streamer.GetEvent(context.Background())
 		if err != nil {
+			MainLogger.Error(err.Error())
+			return err
+		}
+		if ev == nil {
+			MainLogger.Error("nil pointer to event")
+			return err
+		}
+		err = processBinlogEvent(ev, &currentBinlogPos, tableNames, esClient)
+		if err != nil {
+			MainLogger.Error(err.Error())
 			return err
 		}
     }
@@ -370,14 +364,7 @@ func SyncTablesTillDestination(tableNames []string, desBinlogPos, currentBinlogP
     return nil
 }
 
-func processBinlogEvent(streamer *replication.BinlogStreamer, currentBinlogPos *BinlogPosition, tableNames []string, esClient *elasticsearch.Client) error {
-	if currentBinlogPos == nil {
-		return errors.New("nil pointer to currentBinlogPos")
-	}
-    ev, _ := streamer.GetEvent(context.Background())
-	if ev == nil {
-		return errors.New("nil pointer to event")
-	}
+func processBinlogEvent(ev *replication.BinlogEvent, currentBinlogPos *BinlogPosition, tableNames []string, esClient *elasticsearch.Client) error {
     currentBinlogPos.Logpos = uint32(ev.Header.LogPos) // Update the current position from the event header
     //print position get from event
     switch e := ev.Event.(type) {
@@ -389,7 +376,7 @@ func processBinlogEvent(streamer *replication.BinlogStreamer, currentBinlogPos *
         // This event contains the row data for INSERT, UPDATE, DELETE
         eventTableName := string(e.Table.Table) // Get table name from the event
         if !slices.Contains(tableNames, eventTableName) {
-            WriteBinlogPosition(*currentBinlogPos, "main") // Update the position after rotation
+            WriteBinlogPosition(*currentBinlogPos, "main") // Update the position after not registered table or rotation
             return nil
         }
         schemaName := string(e.Table.Schema) // Get schema name
@@ -400,7 +387,16 @@ func processBinlogEvent(streamer *replication.BinlogStreamer, currentBinlogPos *
         case replication.WRITE_ROWS_EVENTv1, replication.WRITE_ROWS_EVENTv2:
 			MainLogger.Debug("  ➡️ INSERT:")
             tableStructure, _ := getTableStructure(getDumpTableStructureFilePath(eventTableName))
-            bulkInsertBinlogRowsToElastic(e.Rows, tableStructure, eventTableName, esClient)
+			records, err := convertBinlogRowsToArrayOfMaps(e.Rows, tableStructure)
+			if err != nil {
+				MainLogger.Error(err.Error())
+				return err
+			}
+			err = bulkSendToElastic(eventTableName, records, esClient)
+			if err != nil {
+				MainLogger.Error(err.Error())
+				return fmt.Errorf("Error sending data to Elastic: %w", err)
+			}
         case replication.UPDATE_ROWS_EVENTv1, replication.UPDATE_ROWS_EVENTv2:
 			MainLogger.Debug("  🔄 UPDATE:")
 			MainLogger.Debug(string(e.ColumnBitmap2))
@@ -412,14 +408,30 @@ func processBinlogEvent(streamer *replication.BinlogStreamer, currentBinlogPos *
                 afterValues := e.Rows[i+1]
                 afterDocs = append(afterDocs, afterValues)
             }
-			err := bulkUpdateBinlogRowsToElastic(afterDocs, tableStructure, eventTableName, esClient)
+
+			records, err := convertBinlogRowsToArrayOfMaps(e.Rows, tableStructure)
 			if err != nil {
+				MainLogger.Error(err.Error())
+				return err
+			}
+			err = bulkUpdateToElastic(eventTableName, records, esClient)
+			if err != nil {
+				MainLogger.Error(err.Error())
 				return err
 			}
         case replication.DELETE_ROWS_EVENTv1, replication.DELETE_ROWS_EVENTv2:
 			MainLogger.Debug("  🗑️ DELETE:")
             tableStructure, _ := getTableStructure(getDumpTableStructureFilePath(eventTableName))
-            bulkDeleteBinlogRowsFromElastic(e.Rows, tableStructure, eventTableName, esClient)
+			records, err:= convertBinlogRowsToArrayOfMaps(e.Rows, tableStructure)
+			if err != nil {
+				MainLogger.Error(err.Error())
+				return err
+			}
+			err = bulkDeleteFromElastic(eventTableName, records, esClient)
+			if err != nil {
+				MainLogger.Error(err.Error())
+				return err
+			}
         }
     case *replication.QueryEvent:
     // DDL changes, etc.

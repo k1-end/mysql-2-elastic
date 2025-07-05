@@ -20,25 +20,6 @@ import (
 var RestartChannel chan bool
 var DoneChannel chan bool
 
-
-func initializeTables(appConfig *config.Config, esClient *elasticsearch.Client, syncer *replication.BinlogSyncer) error{
-    
-    registeredTables := GetRegisteredTables()
-    // Is there any registered tables?
-	if len(registeredTables) == 0 {
-		return errors.New("No registered tables.\n--- End ---")
-	}
-
-	MainLogger.Info("Processing table")
-	err := processTables(registeredTables, appConfig, esClient, syncer)
-	if err != nil {
-		return err
-	}
-
-	MainLogger.Info("Finished Processing table")
-	return nil
-}
-
 func main()  {
 	appConfig, err := config.LoadConfig()
 	if err != nil {
@@ -68,6 +49,24 @@ func main()  {
 	if err != nil {
 		MainLogger.Error(err.Error())
 	}
+}
+
+func initializeTables(appConfig *config.Config, esClient *elasticsearch.Client, syncer *replication.BinlogSyncer) error{
+    
+    registeredTables := GetRegisteredTables()
+    // Is there any registered tables?
+	if len(registeredTables) == 0 {
+		return errors.New("No registered tables.\n--- End ---")
+	}
+
+	MainLogger.Info("Processing table")
+	err := processTables(registeredTables, appConfig, esClient, syncer)
+	if err != nil {
+		return err
+	}
+
+	MainLogger.Info("Finished Processing table")
+	return nil
 }
 
 func sendRestartSignal(w http.ResponseWriter, r *http.Request) {

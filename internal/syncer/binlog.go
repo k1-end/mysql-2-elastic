@@ -5,3 +5,7 @@ type BinlogPosition struct {
 	Logfile string `json:"logfile"`
 	Logpos  uint32  `json:"logpos"`
 }
+
+func GetMainBinlogPositionFilePath() (string) {
+   return "data/main-binlog-position.json" 
+}

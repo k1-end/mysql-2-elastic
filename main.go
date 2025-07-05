@@ -192,7 +192,7 @@ func runTheSyncer(appConfig *config.Config, esClient *elasticsearch.Client, sync
 func GetStoredBinlogCoordinates(tableName string) (syncerpack.BinlogPosition, error) {
     var filePath string
     if tableName == "main" {
-        filePath = GetMainBinlogPositionFilePath()
+        filePath = syncerpack.GetMainBinlogPositionFilePath()
     }else{
         filePath = GetDumpBinlogPositionFilePath(tableName)
     }
@@ -210,7 +210,7 @@ func WriteBinlogPosition(binlogPos syncerpack.BinlogPosition, tableName string) 
 
     var filePath string
     if tableName == "main" {
-        filePath = GetMainBinlogPositionFilePath()
+        filePath = syncerpack.GetMainBinlogPositionFilePath()
     } else {
         filePath = GetDumpBinlogPositionFilePath(tableName)
     }

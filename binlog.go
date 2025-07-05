@@ -10,9 +10,6 @@ import (
 )
 
 
-func GetMainBinlogPositionFilePath() (string) {
-   return "data/main-binlog-position.json" 
-}
 
 func ParseBinlogCoordinatesFile(filePath string) (syncerpack.BinlogPosition, error) {
 	data, err := os.ReadFile(filePath)

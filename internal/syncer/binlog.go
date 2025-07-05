@@ -9,3 +9,7 @@ type BinlogPosition struct {
 func GetMainBinlogPositionFilePath() (string) {
    return "data/main-binlog-position.json" 
 }
+
+func GetTableBinlogPositionFilePath(tableName string) (string) {
+   return "data/dumps/" + tableName + "/" + tableName + "-dump-binlog-position.json" 
+}

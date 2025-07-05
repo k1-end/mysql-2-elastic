@@ -225,7 +225,7 @@ func WriteDumpfilePosition(tableName string) error {
     if err != nil {
         return fmt.Errorf("failed to marshal binlog coordinates: %w", err)
     }
-    err = os.WriteFile(GetDumpBinlogPositionFilePath(tableName), jsonData, 0644)
+    err = os.WriteFile(syncer.GetTableBinlogPositionFilePath(tableName), jsonData, 0644)
     return nil
 }
 
@@ -237,9 +237,6 @@ func getDumpReadProgressFilePath(tableName string) (string) {
    return "data/dumps/" + tableName + "/" + "read_progress.txt"
 }
 
-func GetDumpBinlogPositionFilePath(tableName string) (string) {
-   return "data/dumps/" + tableName + "/" + tableName + "-dump-binlog-position.json" 
-}
 
 func GetDumpFilePath(tableName string) (string) {
    return "data/dumps/" + tableName + "/" + tableName + ".sql"

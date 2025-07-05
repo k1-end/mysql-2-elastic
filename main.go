@@ -175,8 +175,9 @@ func SyncWithTheMainLoop(tableName string, esClient *elasticsearch.Client, synce
         return fmt.Errorf("failed to get binlog coordinates: %w", err)
     }
 
+	newerBinlog := GetNewerBinlogPosition(&mainBinlogPos, &tableBinlogPos)
 
-    if GetNewerBinlogPosition(&mainBinlogPos, &tableBinlogPos) == &mainBinlogPos{
+    if newerBinlog == &mainBinlogPos{
         // Main binlog is newer, so we need to sync the dump file with the main binlog
 		MainLogger.Debug("Main binlog is newer than dump file. Syncing dump file with main binlog...")
 
@@ -188,9 +189,7 @@ func SyncWithTheMainLoop(tableName string, esClient *elasticsearch.Client, synce
         if err != nil {
             return fmt.Errorf("failed to sync table until destination: %w", err)
         }
-    }
-
-    if GetNewerBinlogPosition(&mainBinlogPos, &tableBinlogPos) == &tableBinlogPos{
+    } else if newerBinlog == &tableBinlogPos{
 		MainLogger.Debug("Dump file is newer than main binlog. Syncing main binlog with dump file...")
         err = SyncMainBinlogWithDumpFile(tableBinlogPos, esClient, syncer)
         if err != nil {

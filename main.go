@@ -102,7 +102,7 @@ func initializeTables(appConfig *config.Config, esClient *elasticsearch.Client, 
 				return fmt.Errorf("failed to write dump file position: %w", err)
 			}
 
-			mainBinlogPos, err := GetStoredBinlogCoordinates("main")
+			mainBinlogPos, err := syncerpack.GetStoredBinlogCoordinates("main")
 			if err != nil {
 				return fmt.Errorf("failed to get binlog coordinates: %w", err)
 			}
@@ -148,7 +148,7 @@ func runTheSyncer(appConfig *config.Config, esClient *elasticsearch.Client, sync
     }
 	MainLogger.Debug("Syncing: " + strings.Join(tableNames[:], ","))
 
-    currentBinlogPos, err := GetStoredBinlogCoordinates("main")
+    currentBinlogPos, err := syncerpack.GetStoredBinlogCoordinates("main")
     if err != nil {
 		MainLogger.Error(err.Error())
 		panic(err)
@@ -187,16 +187,6 @@ func runTheSyncer(appConfig *config.Config, esClient *elasticsearch.Client, sync
 			}
         }
     }
-}
-
-func GetStoredBinlogCoordinates(tableName string) (syncerpack.BinlogPosition, error) {
-    var filePath string
-    if tableName == "main" {
-        filePath = syncerpack.GetMainBinlogPositionFilePath()
-    }else{
-        filePath = syncerpack.GetTableBinlogPositionFilePath(tableName)
-    }
-    return syncerpack.ParseBinlogCoordinatesFile(filePath)
 }
 
 func WriteBinlogPosition(binlogPos syncerpack.BinlogPosition, tableName string) error {
@@ -240,7 +230,7 @@ func convertBinlogRowsToArrayOfMaps(rows [][]interface{}, tableStructure []map[s
 
 func SyncMainBinlogTillPosition(desBinlogPos syncerpack.BinlogPosition, esClient *elasticsearch.Client, syncer *replication.BinlogSyncer) error {
 	MainLogger.Debug("Syncing main loop")
-    currentBinlogPos, err := GetStoredBinlogCoordinates("main")
+    currentBinlogPos, err := syncerpack.GetStoredBinlogCoordinates("main")
     if err != nil {
         return fmt.Errorf("failed to parse binlog coordinates from dump file: %w", err)
     }

@@ -41,3 +41,14 @@ func ParseBinlogCoordinatesFile(filePath string) (BinlogPosition, error) {
 	}
     return pos, nil
 }
+
+func GetStoredBinlogCoordinates(tableName string) (BinlogPosition, error) {
+    var filePath string
+    if tableName == "main" {
+        filePath = GetMainBinlogPositionFilePath()
+    }else{
+        filePath = GetTableBinlogPositionFilePath(tableName)
+    }
+    return ParseBinlogCoordinatesFile(filePath)
+}
+

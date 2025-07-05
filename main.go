@@ -14,6 +14,7 @@ import (
 	"github.com/elastic/go-elasticsearch/v7"
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
+	"github.com/k1-end/mysql-elastic-go/internal/api"
 	"github.com/k1-end/mysql-elastic-go/internal/config"
 	"github.com/k1-end/mysql-elastic-go/internal/database"
 	"github.com/k1-end/mysql-elastic-go/internal/logger"
@@ -52,14 +53,10 @@ func main() {
 	if err != nil {
 		MainLogger.Error(err.Error())
 	}
+
     go runTheSyncer(appConfig, esClient, syncer)
 
-	MainLogger.Debug("")
-    http.HandleFunc("/", sendRestartSignal)
-    err = http.ListenAndServe(":8080", nil)
-	if err != nil {
-		MainLogger.Error(err.Error())
-	}
+	api.Serve(MainLogger)
 }
 
 func initializeTables(appConfig *config.Config, esClient *elasticsearch.Client, syncer *replication.BinlogSyncer) error{
@@ -108,10 +105,6 @@ func initializeTables(appConfig *config.Config, esClient *elasticsearch.Client, 
 	return nil
 }
 
-func sendRestartSignal(w http.ResponseWriter, r *http.Request) {
-    fmt.Fprintf(w, "Hello, World!")
-    // RestartChannel<- true
-}
 
 func runTheSyncer(appConfig *config.Config, esClient *elasticsearch.Client, syncer *replication.BinlogSyncer) {
     registeredTables := GetRegisteredTables()

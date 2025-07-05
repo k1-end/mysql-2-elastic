@@ -53,6 +53,7 @@ func main() {
 		MainLogger.Error(err.Error())
 	}
     go runTheSyncer(appConfig, esClient, syncer)
+
 	MainLogger.Debug("")
     http.HandleFunc("/", sendRestartSignal)
     err = http.ListenAndServe(":8080", nil)
@@ -70,11 +71,39 @@ func initializeTables(appConfig *config.Config, esClient *elasticsearch.Client, 
 	}
 
 	MainLogger.Info("Processing table")
-	err := processTables(registeredTables, appConfig, esClient, syncer)
-	if err != nil {
-		return err
-	}
 
+    for _, table := range registeredTables {
+		if table.Status == "created" || table.Status == "dumping" {
+			MainLogger.Debug(table.Name + ": " + table.Status)
+			err := ClearIncompleteDumpedData(table.Name)
+			if err != nil {
+				MainLogger.Error(fmt.Sprintf("Fatal error ClearIncompleteDumpedData: %v", err))
+				panic(err)
+			}
+            err = InitialDump(table.Name, appConfig)
+			if err != nil {
+				MainLogger.Error(fmt.Sprintf("Fatal error InitialDump: %v", err))
+				panic(err)
+			}
+			table.Status = GetRegisteredTables()[table.Name].Status
+		}
+
+		if table.Status == "dumped" || table.Status == "moving" {
+			MainLogger.Debug(table.Name + ": " + table.Status)
+            SendDataToElasticFromDumpfile(table.Name, esClient)
+			table.Status = GetRegisteredTables()[table.Name].Status
+		}
+
+		if table.Status == "moved" {
+			MainLogger.Debug(table.Name + ": " + table.Status)
+
+			err := SyncWithTheMainLoop(table.Name, esClient, syncer)
+			if err != nil {
+				return err
+			}
+			table.Status = GetRegisteredTables()[table.Name].Status
+		}
+    }
 	MainLogger.Info("Finished Processing table")
 	return nil
 }
@@ -133,42 +162,6 @@ func runTheSyncer(appConfig *config.Config, esClient *elasticsearch.Client, sync
 			}
         }
     }
-}
-
-func processTables(registeredTables map[string]RegisteredTable, appConfig *config.Config, esClient *elasticsearch.Client, syncer *replication.BinlogSyncer) error{
-    for _, table := range registeredTables {
-		if table.Status == "created" || table.Status == "dumping" {
-			MainLogger.Debug(table.Name + ": " + table.Status)
-			err := ClearIncompleteDumpedData(table.Name)
-			if err != nil {
-				MainLogger.Error(fmt.Sprintf("Fatal error ClearIncompleteDumpedData: %v", err))
-				panic(err)
-			}
-            err = InitialDump(table.Name, appConfig)
-			if err != nil {
-				MainLogger.Error(fmt.Sprintf("Fatal error InitialDump: %v", err))
-				panic(err)
-			}
-			table.Status = GetRegisteredTables()[table.Name].Status
-		}
-
-		if table.Status == "dumped" || table.Status == "moving" {
-			MainLogger.Debug(table.Name + ": " + table.Status)
-            SendDataToElasticFromDumpfile(table.Name, esClient)
-			table.Status = GetRegisteredTables()[table.Name].Status
-		}
-
-		if table.Status == "moved" {
-			MainLogger.Debug(table.Name + ": " + table.Status)
-
-			err := SyncWithTheMainLoop(table.Name, esClient, syncer)
-			if err != nil {
-				return err
-			}
-			table.Status = GetRegisteredTables()[table.Name].Status
-		}
-    }
-	return nil
 }
 
 func SyncWithTheMainLoop(tableName string, esClient *elasticsearch.Client, syncer *replication.BinlogSyncer) error{

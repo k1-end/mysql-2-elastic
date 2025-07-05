@@ -1,13 +1,26 @@
-package main
+package logger
 
 import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strings" // For potential log level parsing
+	"os"
+	"strings"
 )
 
-// SlogWriter is an io.Writer adapter for slog.Logger.
+// NewLogger creates a new structured logger with a JSON handler.
+func NewLogger() *slog.Logger {
+	// Configure the handler to output JSON and include source code location for errors.
+	handlerOptions := &slog.HandlerOptions{
+		AddSource: true, // Add file and line number
+		Level:     slog.LevelDebug, // Set default logging level
+	}
+
+	// Create a JSON handler that writes to stderr.
+	handler := slog.NewJSONHandler(os.Stderr, handlerOptions)
+	return slog.New(handler)
+}
+
 type SlogWriter struct {
 	logger *slog.Logger
 	level  slog.Level // The level at which to log messages from the standard logger

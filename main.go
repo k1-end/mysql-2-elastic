@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"os"
 	"slices"
@@ -69,25 +68,11 @@ func main()  {
 	if err != nil {
 		MainLogger.Error(err.Error())
 	}
-
 }
 
 func sendRestartSignal(w http.ResponseWriter, r *http.Request) {
     fmt.Fprintf(w, "Hello, World!")
     // RestartChannel<- true
-}
-
-// NewLogger creates a new structured logger with a JSON handler.
-func NewLogger() *slog.Logger {
-	// Configure the handler to output JSON and include source code location for errors.
-	handlerOptions := &slog.HandlerOptions{
-		AddSource: true, // Add file and line number
-		Level:     slog.LevelDebug, // Set default logging level
-	}
-
-	// Create a JSON handler that writes to stderr.
-	handler := slog.NewJSONHandler(os.Stderr, handlerOptions)
-	return slog.New(handler)
 }
 
 func runTheSyncer(appConfig *config.Config, esClient *elasticsearch.Client, syncer *replication.BinlogSyncer) {

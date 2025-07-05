@@ -16,6 +16,7 @@ import (
 
 	"github.com/elastic/go-elasticsearch/v7"
 	"github.com/k1-end/mysql-elastic-go/internal/config"
+	"github.com/k1-end/mysql-elastic-go/internal/logger"
 	"github.com/pingcap/tidb/pkg/parser"
 	"github.com/pingcap/tidb/pkg/parser/ast"
 	_ "github.com/pingcap/tidb/pkg/parser/test_driver" // Required for the parser to work
@@ -29,13 +30,13 @@ type ColumnData struct {
 
 
 func init() {
-	MainLogger = NewLogger()
-	MainLogWriter = NewSlogWriter(MainLogger, slog.LevelDebug)
+	MainLogger = logger.NewLogger()
+	MainLogWriter = logger.NewSlogWriter(MainLogger, slog.LevelDebug)
 
 }
 
 var MainLogger *slog.Logger // Global variable to hold the main logger
-var MainLogWriter *SlogWriter
+var MainLogWriter *logger.SlogWriter
 
 func writeTableStructureFromDumpfile(tableName string) error {
 

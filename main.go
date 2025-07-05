@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"slices"
@@ -15,10 +16,19 @@ import (
 	"github.com/go-mysql-org/go-mysql/replication"
 	"github.com/k1-end/mysql-elastic-go/internal/config"
 	"github.com/k1-end/mysql-elastic-go/internal/database"
+	"github.com/k1-end/mysql-elastic-go/internal/logger"
 )
 
 var RestartChannel chan bool
 var DoneChannel chan bool
+var MainLogger *slog.Logger // Global variable to hold the main logger
+var MainLogWriter *logger.SlogWriter
+
+func init() {
+	MainLogger = logger.NewLogger()
+	MainLogWriter = logger.NewSlogWriter(MainLogger, slog.LevelDebug)
+
+}
 
 func main()  {
 	appConfig, err := config.LoadConfig()

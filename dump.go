@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/elastic/go-elasticsearch/v7"
 	"github.com/k1-end/mysql-elastic-go/internal/config"
 	"github.com/pingcap/tidb/pkg/parser"
 	"github.com/pingcap/tidb/pkg/parser/ast"
@@ -75,7 +76,7 @@ func writeTableStructureFromDumpfile(tableName string) error {
 	return nil
 }
 
-func SendDataToElasticFromDumpfile(tableName string, appConfig *config.Config) error {
+func SendDataToElasticFromDumpfile(tableName string, esClient *elasticsearch.Client) error {
 	dumpFilePath := GetDumpFilePath(tableName)
 	progressFile := getDumpReadProgressFilePath(tableName)
 
@@ -110,7 +111,7 @@ func SendDataToElasticFromDumpfile(tableName string, appConfig *config.Config) e
 
 		if strings.HasPrefix(line, "INSERT INTO") && strings.HasSuffix(line, ";") {
 
-			err = processInsertString(tableName, line, tableStructure, appConfig)
+			err = processInsertString(tableName, line, tableStructure, esClient)
 			if err != nil {
 				return err
 			}
@@ -124,7 +125,7 @@ func SendDataToElasticFromDumpfile(tableName string, appConfig *config.Config) e
 			if strings.HasSuffix(line, ";") {
 				insertStatement := currentStatement.String()
 
-				err = processInsertString(tableName, insertStatement, tableStructure, appConfig)
+				err = processInsertString(tableName, insertStatement, tableStructure, esClient)
 				if err != nil {
 					return err
 				}

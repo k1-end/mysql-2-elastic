@@ -11,16 +11,18 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/elastic/go-elasticsearch/v7"
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
 	"github.com/k1-end/mysql-elastic-go/internal/config"
+	"github.com/k1-end/mysql-elastic-go/internal/database"
 )
 
 var RestartChannel chan bool
 var DoneChannel chan bool
 
 
-func initializeTables(appConfig *config.Config)  error{
+func initializeTables(appConfig *config.Config, esClient *elasticsearch.Client, syncer *replication.BinlogSyncer) error{
     
     registeredTables := GetRegisteredTables()
     // Is there any registered tables?
@@ -29,7 +31,7 @@ func initializeTables(appConfig *config.Config)  error{
 	}
 
 	MainLogger.Info("Processing table")
-	err := processTables(registeredTables, appConfig)
+	err := processTables(registeredTables, appConfig, esClient, syncer)
 	if err != nil {
 		return err
 	}
@@ -44,14 +46,30 @@ func main()  {
 		MainLogger.Error(err.Error())
 		os.Exit(1)
 	}
-	err = initializeTables(appConfig)
+	esClient, err := getElasticClient(appConfig)
+    if err != nil {
+		MainLogger.Error(err.Error())
+		panic(err)
+    }
+
+	syncer, err := database.GetDatabaseSyncer(appConfig, MainLogger)
+    if err != nil {
+		MainLogger.Error(err.Error())
+		panic(err)
+    }
+
+	err = initializeTables(appConfig, esClient, syncer)
 	if err != nil {
 		MainLogger.Error(err.Error())
 	}
-    go runTheSyncer(appConfig)
+    go runTheSyncer(appConfig, esClient, syncer)
 	MainLogger.Debug("")
     http.HandleFunc("/", sendRestartSignal)
-    http.ListenAndServe(":8080", nil)
+    err = http.ListenAndServe(":8080", nil)
+	if err != nil {
+		MainLogger.Error(err.Error())
+	}
+
 }
 
 func sendRestartSignal(w http.ResponseWriter, r *http.Request) {
@@ -72,7 +90,7 @@ func NewLogger() *slog.Logger {
 	return slog.New(handler)
 }
 
-func runTheSyncer(appConfig *config.Config) {
+func runTheSyncer(appConfig *config.Config, esClient *elasticsearch.Client, syncer *replication.BinlogSyncer) {
     registeredTables := GetRegisteredTables()
     var tableNames []string
     for name, table := range registeredTables {
@@ -81,19 +99,12 @@ func runTheSyncer(appConfig *config.Config) {
         }
     }
 	MainLogger.Debug("Syncing: " + strings.Join(tableNames[:], ","))
-    cfg := replication.BinlogSyncerConfig {
-        ServerID: uint32(appConfig.Database.ServerId),
-        Flavor  : appConfig.Database.Driver,
-        Host    : appConfig.Database.Host,
-        Port    : uint16(appConfig.Database.Port),
-        User    : appConfig.Database.Username,
-        Password: appConfig.Database.Password,
-		Logger  : MainLogger,
+
+    currentBinlogPos, err := GetBinlogCoordinates("main")
+    if err != nil {
+		MainLogger.Error(err.Error())
+		panic(err)
     }
-
-    syncer := replication.NewBinlogSyncer(cfg)
-
-    currentBinlogPos, _ := GetBinlogCoordinates("main")
 
     // Start sync with specified binlog file and position
     streamer, err := syncer.StartSync(mysql.Position{
@@ -102,6 +113,7 @@ func runTheSyncer(appConfig *config.Config) {
     })
     if err != nil {
 		MainLogger.Error(err.Error())
+		panic(err)
     }
 
     for {
@@ -109,9 +121,9 @@ func runTheSyncer(appConfig *config.Config) {
         case <-DoneChannel:
             return
         case <-RestartChannel:
-            initializeTables(appConfig)
+            initializeTables(appConfig, esClient, syncer)
         default:
-            err = processBinlogEvent(streamer, &currentBinlogPos, tableNames, appConfig)
+            err = processBinlogEvent(streamer, &currentBinlogPos, tableNames, esClient)
 			if err != nil {
 				MainLogger.Error(err.Error())
 			}
@@ -119,7 +131,7 @@ func runTheSyncer(appConfig *config.Config) {
     }
 }
 
-func processTables(registeredTables map[string]RegisteredTable, appConfig *config.Config) error{
+func processTables(registeredTables map[string]RegisteredTable, appConfig *config.Config, esClient *elasticsearch.Client, syncer *replication.BinlogSyncer) error{
     for _, table := range registeredTables {
 		if table.Status == "created" || table.Status == "dumping" {
 			MainLogger.Debug(table.Name + ": " + table.Status)
@@ -138,13 +150,14 @@ func processTables(registeredTables map[string]RegisteredTable, appConfig *confi
 
 		if table.Status == "dumped" || table.Status == "moving" {
 			MainLogger.Debug(table.Name + ": " + table.Status)
-            SendDataToElasticFromDumpfile(table.Name, appConfig)
+            SendDataToElasticFromDumpfile(table.Name, esClient)
 			table.Status = GetRegisteredTables()[table.Name].Status
 		}
 
 		if table.Status == "moved" {
 			MainLogger.Debug(table.Name + ": " + table.Status)
-			err := SyncWithTheMainLoop(table.Name, appConfig)
+
+			err := SyncWithTheMainLoop(table.Name, esClient, syncer)
 			if err != nil {
 				return err
 			}
@@ -154,7 +167,7 @@ func processTables(registeredTables map[string]RegisteredTable, appConfig *confi
 	return nil
 }
 
-func SyncWithTheMainLoop(tableName string, appConfig *config.Config) error{
+func SyncWithTheMainLoop(tableName string, esClient *elasticsearch.Client, syncer *replication.BinlogSyncer) error{
 	MainLogger.Debug("Syncing with the main loop for table: " + tableName)
     tableBinlogPos, err := GetBinlogCoordinates(tableName)
     if err != nil {
@@ -177,7 +190,12 @@ func SyncWithTheMainLoop(tableName string, appConfig *config.Config) error{
     if GetNewerBinlogPosition(mainBinlogPos, tableBinlogPos) == mainBinlogPos  && mainBinlogPos != tableBinlogPos{
         // Main binlog is newer, so we need to sync the dump file with the main binlog
 		MainLogger.Debug("Main binlog is newer than dump file. Syncing dump file with main binlog...")
-        err = SyncTableUntileDestination(tableName, mainBinlogPos, appConfig)
+
+		currentBinlogPos, err := ParseBinlogCoordinatesFile(GetDumpBinlogPositionFilePath(tableName))
+		if err != nil {
+			return fmt.Errorf("failed to parse binlog coordinates from dump file: %w", err)
+		}
+		err = SyncTablesTillDestination([]string{tableName}, mainBinlogPos, currentBinlogPos, esClient, syncer)
         if err != nil {
             return fmt.Errorf("failed to sync table until destination: %w", err)
         }
@@ -185,7 +203,7 @@ func SyncWithTheMainLoop(tableName string, appConfig *config.Config) error{
 
     if GetNewerBinlogPosition(mainBinlogPos, tableBinlogPos) == tableBinlogPos  && mainBinlogPos != tableBinlogPos{
 		MainLogger.Debug("Dump file is newer than main binlog. Syncing main binlog with dump file...")
-        err = SyncMainBinlogWithDumpFile(tableBinlogPos, appConfig)
+        err = SyncMainBinlogWithDumpFile(tableBinlogPos, esClient, syncer)
         if err != nil {
             return fmt.Errorf("failed to sync table until destination: %w", err)
         }
@@ -207,18 +225,6 @@ func GetBinlogCoordinates(tableName string) (BinlogPosition, error) {
         filePath = GetDumpBinlogPositionFilePath(tableName)
     }
     return ParseBinlogCoordinatesFile(filePath)
-}
-
-func SyncTableUntileDestination(tableName string, desBinlogPos BinlogPosition, appConfig *config.Config) error {
-	MainLogger.Debug("Syncing table:" + tableName)
-
-    currentBinlogPos, err := ParseBinlogCoordinatesFile(GetDumpBinlogPositionFilePath(tableName))
-    if err != nil {
-        return fmt.Errorf("failed to parse binlog coordinates from dump file: %w", err)
-    }
-
-    return SyncTablesTillDestination([]string{tableName}, desBinlogPos, currentBinlogPos, appConfig)
-
 }
 
 func WriteBinlogPosition(binlogPos BinlogPosition, tableName string) error {
@@ -244,7 +250,7 @@ func WriteBinlogPosition(binlogPos BinlogPosition, tableName string) error {
     return nil
 }
 
-func bulkInsertBinlogRowsToElastic(rows [][]interface{}, tableStructure []map[string]interface{}, tableName string, appConfig *config.Config) error {
+func bulkInsertBinlogRowsToElastic(rows [][]interface{}, tableStructure []map[string]interface{}, tableName string, esClient *elasticsearch.Client) error {
     var values []map[string]interface{} 
     for _, row := range rows {
         var singleRecord = make(map[string]interface{})
@@ -258,14 +264,14 @@ func bulkInsertBinlogRowsToElastic(rows [][]interface{}, tableStructure []map[st
         values = append(values, singleRecord)
     }
 
-    err := bulkSendToElastic(tableName, values, appConfig)
+    err := bulkSendToElastic(tableName, values, esClient)
     if err != nil {
         return fmt.Errorf("Error sending data to Elastic: %w", err)
     }
     return nil
 }
 
-func bulkUpdateBinlogRowsToElastic(rows [][]interface{}, tableStructure []map[string]interface{}, tableName string, appConfig *config.Config) error {
+func bulkUpdateBinlogRowsToElastic(rows [][]interface{}, tableStructure []map[string]interface{}, tableName string, esClient *elasticsearch.Client) error {
     var values []map[string]interface{} 
     for _, row := range rows {
         var singleRecord = make(map[string]interface{})
@@ -279,7 +285,7 @@ func bulkUpdateBinlogRowsToElastic(rows [][]interface{}, tableStructure []map[st
         values = append(values, singleRecord)
     }
 
-	err := bulkUpdateToElastic(tableName, values, appConfig)
+	err := bulkUpdateToElastic(tableName, values, esClient)
 
     return err
 }
@@ -287,7 +293,7 @@ func bulkUpdateBinlogRowsToElastic(rows [][]interface{}, tableStructure []map[st
 
 
 
-func bulkDeleteBinlogRowsFromElastic(rows [][]interface{}, tableStructure []map[string]interface{}, tableName string, appConfig *config.Config) error {
+func bulkDeleteBinlogRowsFromElastic(rows [][]interface{}, tableStructure []map[string]interface{}, tableName string, esClient *elasticsearch.Client) error {
     var values []map[string]interface{} 
     for _, row := range rows {
         var singleRecord = make(map[string]interface{})
@@ -300,14 +306,14 @@ func bulkDeleteBinlogRowsFromElastic(rows [][]interface{}, tableStructure []map[
         }
         values = append(values, singleRecord)
     }
-    err := bulkDeleteFromElastic(tableName, values, appConfig)
+    err := bulkDeleteFromElastic(tableName, values, esClient)
     if err != nil {
         return fmt.Errorf("Error deleting data from Elastic: %w", err)
     }
     return nil
 }
 
-func SyncMainBinlogWithDumpFile(desBinlogPos BinlogPosition, appConfig *config.Config) error {
+func SyncMainBinlogWithDumpFile(desBinlogPos BinlogPosition, esClient *elasticsearch.Client, syncer *replication.BinlogSyncer) error {
 	MainLogger.Debug("Syncing main loop")
     currentBinlogPos, err := GetBinlogCoordinates("main")
     if err != nil {
@@ -322,7 +328,7 @@ func SyncMainBinlogWithDumpFile(desBinlogPos BinlogPosition, appConfig *config.C
             synchingTableNames = append(synchingTableNames, name)
         }
     }
-    err = SyncTablesTillDestination(synchingTableNames, desBinlogPos, currentBinlogPos, appConfig)
+    err = SyncTablesTillDestination(synchingTableNames, desBinlogPos, currentBinlogPos, esClient, syncer)
 
     return err
 }
@@ -345,19 +351,8 @@ func GetNewerBinlogPosition(pos1, pos2 BinlogPosition) BinlogPosition {
 }
 
 
-func SyncTablesTillDestination(tableNames []string, desBinlogPos, currentBinlogPos BinlogPosition, appConfig *config.Config) error {
+func SyncTablesTillDestination(tableNames []string, desBinlogPos, currentBinlogPos BinlogPosition, esClient *elasticsearch.Client, syncer *replication.BinlogSyncer) error {
 	MainLogger.Debug("Syncing: " + strings.Join(tableNames[:], ","))
-    cfg := replication.BinlogSyncerConfig {
-        ServerID: uint32(appConfig.Database.ServerId),
-        Flavor  : appConfig.Database.Driver,
-        Host    : appConfig.Database.Host,
-        Port    : uint16(appConfig.Database.Port),
-        User    : appConfig.Database.Username,
-        Password: appConfig.Database.Password,
-		Logger  : MainLogger,
-    }
-
-    syncer := replication.NewBinlogSyncer(cfg)
 
     // Start sync with specified binlog file and position
     streamer, _ := syncer.StartSync(mysql.Position{
@@ -366,7 +361,7 @@ func SyncTablesTillDestination(tableNames []string, desBinlogPos, currentBinlogP
     })
 
     for GetNewerBinlogPosition(currentBinlogPos, desBinlogPos) == desBinlogPos  && desBinlogPos != currentBinlogPos{
-		err := processBinlogEvent(streamer, &currentBinlogPos, tableNames, appConfig)
+		err := processBinlogEvent(streamer, &currentBinlogPos, tableNames, esClient)
 		if err != nil {
 			return err
 		}
@@ -375,7 +370,7 @@ func SyncTablesTillDestination(tableNames []string, desBinlogPos, currentBinlogP
     return nil
 }
 
-func processBinlogEvent(streamer *replication.BinlogStreamer, currentBinlogPos *BinlogPosition, tableNames []string, appConfig *config.Config) error {
+func processBinlogEvent(streamer *replication.BinlogStreamer, currentBinlogPos *BinlogPosition, tableNames []string, esClient *elasticsearch.Client) error {
 	if currentBinlogPos == nil {
 		return errors.New("nil pointer to currentBinlogPos")
 	}
@@ -405,7 +400,7 @@ func processBinlogEvent(streamer *replication.BinlogStreamer, currentBinlogPos *
         case replication.WRITE_ROWS_EVENTv1, replication.WRITE_ROWS_EVENTv2:
 			MainLogger.Debug("  ➡️ INSERT:")
             tableStructure, _ := getTableStructure(getDumpTableStructureFilePath(eventTableName))
-            bulkInsertBinlogRowsToElastic(e.Rows, tableStructure, eventTableName, appConfig)
+            bulkInsertBinlogRowsToElastic(e.Rows, tableStructure, eventTableName, esClient)
         case replication.UPDATE_ROWS_EVENTv1, replication.UPDATE_ROWS_EVENTv2:
 			MainLogger.Debug("  🔄 UPDATE:")
 			MainLogger.Debug(string(e.ColumnBitmap2))
@@ -417,14 +412,14 @@ func processBinlogEvent(streamer *replication.BinlogStreamer, currentBinlogPos *
                 afterValues := e.Rows[i+1]
                 afterDocs = append(afterDocs, afterValues)
             }
-			err := bulkUpdateBinlogRowsToElastic(afterDocs, tableStructure, eventTableName, appConfig)
+			err := bulkUpdateBinlogRowsToElastic(afterDocs, tableStructure, eventTableName, esClient)
 			if err != nil {
 				return err
 			}
         case replication.DELETE_ROWS_EVENTv1, replication.DELETE_ROWS_EVENTv2:
 			MainLogger.Debug("  🗑️ DELETE:")
             tableStructure, _ := getTableStructure(getDumpTableStructureFilePath(eventTableName))
-            bulkDeleteBinlogRowsFromElastic(e.Rows, tableStructure, eventTableName, appConfig)
+            bulkDeleteBinlogRowsFromElastic(e.Rows, tableStructure, eventTableName, esClient)
         }
     case *replication.QueryEvent:
     // DDL changes, etc.

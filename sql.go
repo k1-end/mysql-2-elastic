@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/k1-end/mysql-elastic-go/internal/config"
+	"github.com/elastic/go-elasticsearch/v7"
 	"github.com/pingcap/tidb/pkg/parser"
 	"github.com/pingcap/tidb/pkg/parser/ast"
 )
@@ -42,7 +42,7 @@ func getColumnNameFromPosition(tableStructure []map[string]interface{}, position
 }
 
 
-func processInsertString(tableName string, insertStatement string, tableStructure []map[string]interface{}, appConfig *config.Config) error {
+func processInsertString(tableName string, insertStatement string, tableStructure []map[string]interface{}, esClient *elasticsearch.Client) error {
     p := parser.New()
     // Parse the SQL statement
     // The last two arguments are charset and collation, which can be empty for default.
@@ -77,7 +77,7 @@ func processInsertString(tableName string, insertStatement string, tableStructur
         values = append(values, singleRecord)
     }
 
-    err = bulkSendToElastic(tableName, values, appConfig)
+    err = bulkSendToElastic(tableName, values, esClient)
     if err != nil {
         return err
     }

@@ -13,7 +13,31 @@ import (
 	"github.com/k1-end/mysql-elastic-go/internal/config"
 )
 
-func bulkSendToElastic(indexName string, documents []map[string]interface{}, appConfig *config.Config) error{
+func getElasticClient(appConfig *config.Config) (*elasticsearch.Client, error){
+
+    cfg := elasticsearch.Config{
+        Addresses: []string{
+            appConfig.Elastic.Address,
+        },
+        Username: appConfig.Elastic.Username,
+        Password: appConfig.Elastic.Password,
+    }
+    es, err := elasticsearch.NewClient(cfg)
+    
+    if err != nil {
+		return nil, fmt.Errorf("Error creating the Elasticsearch client: %s", err)
+    }
+
+    res, err := es.Info()
+    if err != nil {
+		return nil, fmt.Errorf("Error getting Elasticsearch info: %s", err)
+    }
+    defer res.Body.Close()
+	MainLogger.Debug("Elasticsearch Info:" + res.Status())
+	return es, nil
+}
+
+func bulkSendToElastic(indexName string, documents []map[string]interface{}, esClient *elasticsearch.Client) error{
     if len(documents) == 0 {
         return fmt.Errorf("no documents to index")
     }
@@ -55,32 +79,10 @@ func bulkSendToElastic(indexName string, documents []map[string]interface{}, app
         // Refresh: "true", // Uncomment if you want to make documents searchable immediately (slower indexing)
     }
 
-    cfg := elasticsearch.Config{
-        Addresses: []string{
-            appConfig.Elastic.Address,
-        },
-        Username: appConfig.Elastic.Username,
-        Password: appConfig.Elastic.Password,
-    }
-    es, err := elasticsearch.NewClient(cfg)
-    
-    if err != nil {
-        MainLogger.Error(fmt.Sprintf("Error creating the Elasticsearch client: %s", err))
-		panic(err)
-    }
-
-    // Ping the Elasticsearch server to verify connection (optional)
-    res, err := es.Info()
-    if err != nil {
-        MainLogger.Error(fmt.Sprintf("Error getting Elasticsearch info: %s", err))
-		panic(err)
-    }
-    defer res.Body.Close()
-	MainLogger.Debug("Elasticsearch Info:" + res.Status())
     ctx := context.Background()
 
     // Perform the bulk request
-    res, err = req.Do(ctx, es)
+	res, err := req.Do(ctx, esClient)
     if err != nil {
         return fmt.Errorf("error performing bulk request: %w", err)
     }
@@ -108,29 +110,10 @@ func bulkSendToElastic(indexName string, documents []map[string]interface{}, app
     return nil
 }
 
-func bulkUpdateToElastic(indexName string, documents []map[string]interface{}, appConfig *config.Config) error{
+func bulkUpdateToElastic(indexName string, documents []map[string]interface{}, esClient *elasticsearch.Client) error{
     if len(documents) == 0 {
         return fmt.Errorf("no documents to index")
     }
-    cfg := elasticsearch.Config{
-        Addresses: []string{
-            appConfig.Elastic.Address,
-        },
-        Username: appConfig.Elastic.Username,
-        Password: appConfig.Elastic.Password,
-    }
-	es, err := elasticsearch.NewClient(cfg)
-	if err != nil {
-		MainLogger.Error(fmt.Sprintf("Error creating the Elasticsearch client: %s", err))
-		panic(err)
-	}
-
-    _, err = es.Info()
-	if err != nil {
-		MainLogger.Error(fmt.Sprintf("Error getting client info: %s", err))
-		panic(err)
-	}
-
     // --- Build the NDJSON request body ---
 	// Each operation requires two lines:
 	// 1. Action and metadata (e.g., {"update": {"_id": "document_id"}})
@@ -187,9 +170,9 @@ func bulkUpdateToElastic(indexName string, documents []map[string]interface{}, a
 		}
     }
 
-    res, err := es.Bulk(
+    res, err := esClient.Bulk(
 		bytes.NewReader([]byte(bulkBody.String())),
-		es.Bulk.WithContext(context.Background()),
+		esClient.Bulk.WithContext(context.Background()),
 	)
 	MainLogger.Debug(bulkBody.String())
 
@@ -255,29 +238,7 @@ func bulkUpdateToElastic(indexName string, documents []map[string]interface{}, a
 }
 
 
-func bulkDeleteFromElastic(indexName string, documents []map[string]interface{}, appConfig *config.Config) error {
-
-    cfg := elasticsearch.Config{
-        Addresses: []string{
-            appConfig.Elastic.Address,
-        },
-        Username: appConfig.Elastic.Username,
-        Password: appConfig.Elastic.Password,
-    }
-	es, err := elasticsearch.NewClient(cfg)
-	if err != nil {
-		MainLogger.Error("Error creating the Elasticsearch client: %s", err)
-		panic(err)
-	}
-
-	// Ping to ensure connection
-	res, err := es.Info()
-	if err != nil {
-		MainLogger.Error(fmt.Sprintf("Error getting client info: %s", err))
-		panic(err)
-	}
-	defer res.Body.Close()
-	MainLogger.Debug("Successfully connected to Elasticsearch!")
+func bulkDeleteFromElastic(indexName string, documents []map[string]interface{}, esClient *elasticsearch.Client) error {
 
 	// --- Build the NDJSON request body ---
 	// Each delete operation requires one line:
@@ -325,10 +286,10 @@ func bulkDeleteFromElastic(indexName string, documents []map[string]interface{},
 	// Refresh the index immediately after the bulk operation for searchability (optional, for testing)
 	refresh := "wait_for" // or "true" for immediate refresh, or "" for default
 
-	res, err = es.Bulk(
+	res, err := esClient.Bulk(
 		bytes.NewReader([]byte(bulkBody.String())),
-		es.Bulk.WithContext(context.Background()),
-		es.Bulk.WithRefresh(refresh), // Apply refresh setting
+		esClient.Bulk.WithContext(context.Background()),
+		esClient.Bulk.WithRefresh(refresh), // Apply refresh setting
 	)
 	if err != nil {
 		MainLogger.Error(fmt.Sprintf("FATAL ERROR: %s", err))

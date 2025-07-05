@@ -196,7 +196,7 @@ func GetStoredBinlogCoordinates(tableName string) (syncerpack.BinlogPosition, er
     }else{
         filePath = syncerpack.GetTableBinlogPositionFilePath(tableName)
     }
-    return ParseBinlogCoordinatesFile(filePath)
+    return syncerpack.ParseBinlogCoordinatesFile(filePath)
 }
 
 func WriteBinlogPosition(binlogPos syncerpack.BinlogPosition, tableName string) error {

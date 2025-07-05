@@ -1,0 +1,7 @@
+package syncer
+
+// BinlogPosition represents the structure of your JSON data
+type BinlogPosition struct {
+	Logfile string `json:"logfile"`
+	Logpos  uint32  `json:"logpos"`
+}

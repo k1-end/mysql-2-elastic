@@ -15,6 +15,7 @@ import (
 
 	"github.com/elastic/go-elasticsearch/v7"
 	"github.com/k1-end/mysql-elastic-go/internal/config"
+	"github.com/k1-end/mysql-elastic-go/internal/syncer"
 	"github.com/pingcap/tidb/pkg/parser"
 	"github.com/pingcap/tidb/pkg/parser/ast"
 	_ "github.com/pingcap/tidb/pkg/parser/test_driver" // Required for the parser to work
@@ -175,10 +176,10 @@ func getCreateTableStatementFromDumpFile(dumpFilePath string) (string, error) {
 	return "", fmt.Errorf("CREATE TABLE statement not found in dump file")
 }
 
-func GetBinlogCoordinatesFromDumpfile(dumpFilePath string) (BinlogPosition, error) {
+func GetBinlogCoordinatesFromDumpfile(dumpFilePath string) (syncer.BinlogPosition, error) {
 	file, err := os.Open(dumpFilePath)
 	if err != nil {
-		return BinlogPosition{}, fmt.Errorf("failed to open dump file for parsing: %w", err)
+		return syncer.BinlogPosition{}, fmt.Errorf("failed to open dump file for parsing: %w", err)
 	}
 	defer file.Close()
 
@@ -194,20 +195,20 @@ func GetBinlogCoordinatesFromDumpfile(dumpFilePath string) (BinlogPosition, erro
 			if err == io.EOF {
 				break
 			}
-			return BinlogPosition{}, fmt.Errorf("error reading dump file: %w", err)
+			return syncer.BinlogPosition{}, fmt.Errorf("error reading dump file: %w", err)
 		}
 		if matches := re.FindStringSubmatch(line); len(matches) == 3 {
 			logFile = matches[1]
 			pos, err := strconv.ParseUint(matches[2], 10, 32)
 			if err != nil {
-				return BinlogPosition{}, fmt.Errorf("failed to parse binlog position: %w", err)
+				return syncer.BinlogPosition{}, fmt.Errorf("failed to parse binlog position: %w", err)
 			}
 			logPos = uint32(pos)
-			return BinlogPosition{Logfile: logFile, Logpos: logPos}, nil
+			return syncer.BinlogPosition{Logfile: logFile, Logpos: logPos}, nil
 		}
 	}
 
-	return BinlogPosition{}, fmt.Errorf("binlog coordinates not found in dump file " + dumpFilePath)
+	return syncer.BinlogPosition{}, fmt.Errorf("binlog coordinates not found in dump file " + dumpFilePath)
 }
 
 func WriteDumpfilePosition(tableName string) error {

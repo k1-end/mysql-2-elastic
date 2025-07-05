@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"os"
 	"slices"
 	"strings"
@@ -177,7 +176,7 @@ func SyncWithTheMainLoop(tableName string, esClient *elasticsearch.Client, synce
     }
 
 
-    if GetNewerBinlogPosition(mainBinlogPos, tableBinlogPos) == mainBinlogPos  && mainBinlogPos != tableBinlogPos{
+    if GetNewerBinlogPosition(&mainBinlogPos, &tableBinlogPos) == &mainBinlogPos{
         // Main binlog is newer, so we need to sync the dump file with the main binlog
 		MainLogger.Debug("Main binlog is newer than dump file. Syncing dump file with main binlog...")
 
@@ -191,7 +190,7 @@ func SyncWithTheMainLoop(tableName string, esClient *elasticsearch.Client, synce
         }
     }
 
-    if GetNewerBinlogPosition(mainBinlogPos, tableBinlogPos) == tableBinlogPos  && mainBinlogPos != tableBinlogPos{
+    if GetNewerBinlogPosition(&mainBinlogPos, &tableBinlogPos) == &tableBinlogPos{
 		MainLogger.Debug("Dump file is newer than main binlog. Syncing main binlog with dump file...")
         err = SyncMainBinlogWithDumpFile(tableBinlogPos, esClient, syncer)
         if err != nil {
@@ -276,8 +275,8 @@ func SyncMainBinlogWithDumpFile(desBinlogPos BinlogPosition, esClient *elasticse
     return err
 }
 
-// If both args are equal, the first one will be returned
-func GetNewerBinlogPosition(pos1, pos2 BinlogPosition) BinlogPosition {
+// If both args are equal, nil will be returned
+func GetNewerBinlogPosition(pos1, pos2 *BinlogPosition) *BinlogPosition {
     if pos1.Logfile < pos2.Logfile {
         return pos2
     } else if pos1.Logfile > pos2.Logfile {
@@ -288,7 +287,7 @@ func GetNewerBinlogPosition(pos1, pos2 BinlogPosition) BinlogPosition {
         } else if pos1.Logpos > pos2.Logpos {
             return pos1
         } else {
-            return pos1 // They are equal
+            return nil // They are equal
         }
     }
 }
@@ -303,7 +302,7 @@ func SyncTablesTillDestination(tableNames []string, desBinlogPos, currentBinlogP
         Pos: currentBinlogPos.Logpos,
     })
 
-    for GetNewerBinlogPosition(currentBinlogPos, desBinlogPos) == desBinlogPos  && desBinlogPos != currentBinlogPos{
+    for GetNewerBinlogPosition(&currentBinlogPos, &desBinlogPos) == &desBinlogPos {
 		ev, err := streamer.GetEvent(context.Background())
 		if err != nil {
 			MainLogger.Error(err.Error())

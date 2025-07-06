@@ -1,4 +1,4 @@
-package main
+package util
 
 import (
 	"errors"
@@ -20,7 +20,7 @@ func directoryExists(path string) (bool, error) {
 	return false, err
 }
 
-func createDirectoryIfNotExists(path string) error {
+func CreateDirectoryIfNotExists(path string) error {
 	exists, err := directoryExists(path)
 	if err != nil {
 		// An error occurred while checking existence (e.g., permission issues)
@@ -29,7 +29,7 @@ func createDirectoryIfNotExists(path string) error {
 
 	if exists {
 		// Directory already exists, do nothing
-		MainLogger.Debug(fmt.Sprintf("Directory '%s' already exists. Doing nothing.\n", path))
+		// MainLogger.Debug(fmt.Sprintf("Directory '%s' already exists. Doing nothing.\n", path))
 		return nil
 	}
 
@@ -44,6 +44,6 @@ func createDirectoryIfNotExists(path string) error {
 		return fmt.Errorf("failed to create directory '%s': %w", path, err)
 	}
 
-	MainLogger.Debug(fmt.Sprintf("Directory '%s' created successfully.\n", path))
+	// MainLogger.Debug(fmt.Sprintf("Directory '%s' created successfully.\n", path))
 	return nil
 }

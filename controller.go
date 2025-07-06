@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
+
+	tablepack "github.com/k1-end/mysql-elastic-go/internal/table"
 )
 
 func pushNewTable(tableName string) error {
@@ -13,14 +14,15 @@ func pushNewTable(tableName string) error {
 		return fmt.Errorf("Server is busy right now. Try again later.")
 	}
 
-	registeredTables := GetRegisteredTables()
-	registeredTables[tableName] = RegisteredTable{
-		Name:   tableName,
-		Status: "created",
-	}
-
-	jsonData, _ := json.Marshal(registeredTables)
-	os.WriteFile(registeredTablesFilePath, jsonData, 0644)
+	//TODO: write a method in table package for this
+	// registeredTables := tablepack.GetRegisteredTables()
+	// registeredTables[tableName] = tablepack.RegisteredTable{
+	// 	Name:   tableName,
+	// 	Status: "created",
+	// }
+	//
+	// jsonData, _ := json.Marshal(registeredTables)
+	// os.WriteFile(registeredTablesFilePath, jsonData, 0644)
 	setServerStatus("busy")
 	return nil
 }
@@ -35,7 +37,7 @@ func addTable(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tableName := r.URL.Query().Get("table_name")
-	if tableExists(tableName) {
+	if tablepack.TableExists(tableName) {
 		http.Error(w, "Table already exists", http.StatusConflict)
 		return
 	}
@@ -59,7 +61,7 @@ func dumpTable(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tableName := r.URL.Query().Get("table_name")
-	if !tableExists(tableName) {
+	if !tablepack.TableExists(tableName) {
 		http.Error(w, "Table does not exists", http.StatusConflict)
 		return
 	}
@@ -78,12 +80,12 @@ func getTable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tableName := r.URL.Query().Get("table_name")
-	if !tableExists(tableName) {
+	if !tablepack.TableExists(tableName) {
 		http.Error(w, "Table does not exists", http.StatusConflict)
 		return
 	}
 	// return table info
-	registeredTables := GetRegisteredTables()
+	registeredTables := tablepack.GetRegisteredTables()
 	table, exists := registeredTables[tableName]
 	if !exists {
 		http.Error(w, "Table does not exists", http.StatusConflict)
@@ -98,17 +100,10 @@ func getTable(w http.ResponseWriter, r *http.Request) {
 
 func getAllTable(w http.ResponseWriter, r *http.Request) {
 	MainLogger.Debug("got /get-all-table request\n")
-	registeredTables := GetRegisteredTables()
+	registeredTables := tablepack.GetRegisteredTables()
 	jsonData, _ := json.Marshal(registeredTables)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	io.WriteString(w, string(jsonData))
 	return
 }
-
-//    http.HandleFunc("/add-table", addTable)
-//    http.HandleFunc("/dump-table", dumpTable)
-//    http.HandleFunc("/get-table", getTable)
-//    http.HandleFunc("/get-all-table", getAllTable)
-//
-// _ = http.ListenAndServe(":3333", nil)

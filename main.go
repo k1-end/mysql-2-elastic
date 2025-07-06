@@ -1,9 +1,12 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"slices"
@@ -17,6 +20,7 @@ import (
 	"github.com/k1-end/mysql-elastic-go/internal/config"
 	"github.com/k1-end/mysql-elastic-go/internal/logger"
 	syncerpack "github.com/k1-end/mysql-elastic-go/internal/syncer"
+	tablepack "github.com/k1-end/mysql-elastic-go/internal/table"
 )
 
 var RestartChannel chan bool
@@ -60,7 +64,7 @@ func main() {
 
 func initializeTables(appConfig *config.Config, esClient *elasticsearch.Client, syncer *replication.BinlogSyncer) error{
     
-    registeredTables := GetRegisteredTables()
+    registeredTables := tablepack.GetRegisteredTables()
     // Is there any registered tables?
 	if len(registeredTables) == 0 {
 		return errors.New("No registered tables.\n--- End ---")
@@ -71,32 +75,32 @@ func initializeTables(appConfig *config.Config, esClient *elasticsearch.Client, 
     for _, table := range registeredTables {
 		if table.Status == "created" || table.Status == "dumping" {
 			MainLogger.Debug(table.Name + ": " + table.Status)
-			err := ClearIncompleteDumpedData(table.Name)
+			err := syncerpack.ClearIncompleteDumpedData(table.Name)
 			if err != nil {
 				MainLogger.Error(fmt.Sprintf("Fatal error ClearIncompleteDumpedData: %v", err))
 				panic(err)
 			}
-            err = InitialDump(table.Name, appConfig)
+            err = syncerpack.InitialDump(table.Name, appConfig, MainLogger)
 			if err != nil {
 				MainLogger.Error(fmt.Sprintf("Fatal error InitialDump: %v", err))
 				panic(err)
 			}
-			table.Status = GetRegisteredTables()[table.Name].Status
+			table.Status = tablepack.GetRegisteredTables()[table.Name].Status
 		}
 
 		if table.Status == "dumped" || table.Status == "moving" {
 			MainLogger.Debug(table.Name + ": " + table.Status)
-            SendDataToElasticFromDumpfile(table.Name, esClient)
-			table.Status = GetRegisteredTables()[table.Name].Status
+            sendDataToElasticFromDumpfile(table.Name, esClient)
+			table.Status = tablepack.GetRegisteredTables()[table.Name].Status
 		}
 
 		if table.Status == "moved" {
 			MainLogger.Debug("Syncing with the main loop for table: " + table.Name)
-			tableBinlogPos, err := GetBinlogCoordinatesFromDumpfile(GetDumpFilePath(table.Name))
+			tableBinlogPos, err := syncerpack.GetBinlogCoordinatesFromDumpfile(syncerpack.GetDumpFilePath(table.Name))
 			if err != nil {
 				return fmt.Errorf("failed to parse binlog coordinates from dump file: %w", err)
 			}
-			err = WriteDumpfilePosition(table.Name) // for safety
+			err = syncerpack.WriteDumpfilePosition(table.Name) // for safety
 			if err != nil {
 				return fmt.Errorf("failed to write dump file position: %w", err)
 			}
@@ -124,12 +128,12 @@ func initializeTables(appConfig *config.Config, esClient *elasticsearch.Client, 
 				}
 			}
 			MainLogger.Debug("Sync completed for table:" + table.Name)
-			err = SetTableStatus(table.Name, "syncing")
+			err = tablepack.SetTableStatus(table.Name, "syncing")
 			if err != nil {
 				return fmt.Errorf("set table status %s: %w", table.Name, err)
 			}
 
-			table.Status = GetRegisteredTables()[table.Name].Status
+			table.Status = tablepack.GetRegisteredTables()[table.Name].Status
 		}
     }
 	MainLogger.Info("Finished Processing table")
@@ -138,7 +142,7 @@ func initializeTables(appConfig *config.Config, esClient *elasticsearch.Client, 
 
 
 func runTheSyncer(appConfig *config.Config, esClient *elasticsearch.Client, syncer *replication.BinlogSyncer) {
-    registeredTables := GetRegisteredTables()
+    registeredTables := tablepack.GetRegisteredTables()
     var tableNames []string
     for name, table := range registeredTables {
         if table.Status == "syncing" {
@@ -211,7 +215,7 @@ func syncMainBinlogTillPosition(desBinlogPos syncerpack.BinlogPosition, esClient
         return fmt.Errorf("failed to parse binlog coordinates from dump file: %w", err)
     }
 
-    registeredTables := GetRegisteredTables()
+    registeredTables := tablepack.GetRegisteredTables()
     // filter registeredTables by syncing status
     var synchingTableNames []string
     for name, table := range registeredTables {
@@ -275,7 +279,7 @@ func processBinlogEvent(ev *replication.BinlogEvent, currentBinlogPos *syncerpac
         switch ev.Header.EventType {
         case replication.WRITE_ROWS_EVENTv1, replication.WRITE_ROWS_EVENTv2:
 			MainLogger.Debug("  ➡️ INSERT:")
-            tableStructure, _ := getTableStructure(getDumpTableStructureFilePath(eventTableName))
+            tableStructure, _ := tablepack.GetTableStructure(syncerpack.GetDumpTableStructureFilePath(eventTableName))
 			records, err := convertBinlogRowsToArrayOfMaps(e.Rows, tableStructure)
 			if err != nil {
 				MainLogger.Error(err.Error())
@@ -291,7 +295,7 @@ func processBinlogEvent(ev *replication.BinlogEvent, currentBinlogPos *syncerpac
 			MainLogger.Debug(string(e.ColumnBitmap2))
             // For UPDATE events, e.Rows contains pairs of [before-image, after-image]
             // The length of e.Rows will be N*2, where N is the number of updated rows.
-            tableStructure, _ := getTableStructure(getDumpTableStructureFilePath(eventTableName))
+            tableStructure, _ := tablepack.GetTableStructure(syncerpack.GetDumpTableStructureFilePath(eventTableName))
             var afterDocs [][]interface{}
             for i := 0; i < len(e.Rows); i += 2 {
                 afterValues := e.Rows[i+1]
@@ -310,7 +314,7 @@ func processBinlogEvent(ev *replication.BinlogEvent, currentBinlogPos *syncerpac
 			}
         case replication.DELETE_ROWS_EVENTv1, replication.DELETE_ROWS_EVENTv2:
 			MainLogger.Debug("  🗑️ DELETE:")
-            tableStructure, _ := getTableStructure(getDumpTableStructureFilePath(eventTableName))
+            tableStructure, _ := tablepack.GetTableStructure(syncerpack.GetDumpTableStructureFilePath(eventTableName))
 			records, err:= convertBinlogRowsToArrayOfMaps(e.Rows, tableStructure)
 			if err != nil {
 				MainLogger.Error(err.Error())
@@ -328,4 +332,83 @@ func processBinlogEvent(ev *replication.BinlogEvent, currentBinlogPos *syncerpac
     }
     syncerpack.WriteBinlogPosition(*currentBinlogPos, "main") // Update the position after rotation
     return nil
+}
+
+func sendDataToElasticFromDumpfile(tableName string, esClient *elasticsearch.Client) error {
+	dumpFilePath := syncerpack.GetDumpFilePath(tableName)
+	progressFile := syncerpack.GetDumpReadProgressFilePath(tableName)
+
+
+    table := tablepack.GetRegisteredTables()[tableName]
+    if table.Status != "moving" {
+       tablepack.SetTableStatus(tableName, "moving")
+    }
+
+    syncerpack.WriteTableStructureFromDumpfile(tableName)
+	tableStructure, _ := tablepack.GetTableStructure(syncerpack.GetDumpTableStructureFilePath(tableName))
+
+	currentOffset := readLastOffset(progressFile)
+	file, err := os.OpenFile(dumpFilePath, os.O_RDONLY, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to open dump file: %w", err)
+	}
+	defer file.Close()
+
+	_, err = file.Seek(currentOffset, io.SeekStart)
+	if err != nil {
+		return fmt.Errorf("Failed to seek in dump file: %w", err)
+	}
+
+	scanner := bufio.NewScanner(file)
+
+	var currentStatement bytes.Buffer
+	inInsertStatement := false
+
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+
+		if strings.HasPrefix(line, "INSERT INTO") && strings.HasSuffix(line, ";") {
+
+			err = processInsertString(tableName, line, tableStructure, esClient)
+			if err != nil {
+				return err
+			}
+
+			inInsertStatement = false
+		} else if strings.HasPrefix(line, "INSERT INTO") {
+			inInsertStatement = true
+			currentStatement.WriteString(" " + line)
+		} else if inInsertStatement {
+			currentStatement.WriteString(" " + line)
+			if strings.HasSuffix(line, ";") {
+				insertStatement := currentStatement.String()
+
+				err = processInsertString(tableName, insertStatement, tableStructure, esClient)
+				if err != nil {
+					return err
+				}
+
+				inInsertStatement = false
+			}
+		}
+
+		currentOffset += int64(len(scanner.Bytes())) + 2 // +1 for the newline character consumed by scanner
+		if !inInsertStatement {
+			err = writeCurrentOffset(progressFile, currentOffset)
+			if err != nil {
+				return err
+			}
+			currentStatement.Reset()
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		// The currentOffset might not be at the end of the last successfully processed line
+		// if the error occurred mid-line or during the read operation for the next line.
+		// The last successfully written offset to progressFile is your best bet.
+		return err
+	}
+
+    tablepack.SetTableStatus(tableName, "moved")
+	return nil
 }

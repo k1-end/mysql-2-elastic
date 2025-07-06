@@ -15,7 +15,6 @@ import (
 
 	"github.com/k1-end/mysql-elastic-go/internal/api"
 	"github.com/k1-end/mysql-elastic-go/internal/config"
-	"github.com/k1-end/mysql-elastic-go/internal/database"
 	"github.com/k1-end/mysql-elastic-go/internal/logger"
 	syncerpack "github.com/k1-end/mysql-elastic-go/internal/syncer"
 )
@@ -43,7 +42,7 @@ func main() {
 		panic(err)
     }
 
-	syncer, err := database.GetDatabaseSyncer(appConfig, MainLogger)
+	syncer, err := syncerpack.GetDatabaseSyncer(appConfig, MainLogger)
     if err != nil {
 		MainLogger.Error(err.Error())
 		panic(err)

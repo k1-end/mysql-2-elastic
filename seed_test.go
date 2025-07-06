@@ -14,6 +14,7 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/k1-end/mysql-elastic-go/internal/config"
+	databasemodule "github.com/k1-end/mysql-elastic-go/internal/database"
 	"github.com/olivere/elastic/v7"
 )
 
@@ -75,7 +76,7 @@ func TestSeed(t *testing.T) {
 	// --- 4. Get List of Tables from MySQL ---
 	// You might want to specify which tables to check explicitly instead of all.
 	// For this example, we'll get all non-system tables.
-	tableNames, err := getTableNames(mysqlDB)
+	tableNames, err := databasemodule.GetTableNames(mysqlDB)
 	if err != nil {
 		MainLogger.Debug(fmt.Sprintf("Failed to get table names from MySQL: %v", err))
 	}
@@ -104,7 +105,7 @@ func TestSeed(t *testing.T) {
 		elasticsearchIndex := tableName // Often, ES index names are lowercase
 
 		// Get all rows from the MySQL table
-		mysqlRows, err := getMySQLRows(mysqlDB, tableName, primaryKeyColumnName)
+		mysqlRows, err := databasemodule.GetMySQLRows(mysqlDB, tableName, primaryKeyColumnName)
 		if err != nil {
 			MainLogger.Debug(fmt.Sprintf("Error getting rows from MySQL table %s: %v\n", tableName, err))
 			continue
@@ -115,7 +116,7 @@ func TestSeed(t *testing.T) {
 			continue
 		}
 
-		MainLogger.Debug("Found %d rows in MySQL table '%s'.\n", len(mysqlRows), tableName)
+		MainLogger.Debug(fmt.Sprintf("Found %d rows in MySQL table '%s'.\n", len(mysqlRows), tableName))
 
 		tableMissingRows := 0
 		tableVerifiedRows := 0
@@ -173,76 +174,6 @@ func TestSeed(t *testing.T) {
 }
 
 // getTableNames retrieves a list of table names from the MySQL database.
-func getTableNames(db *sql.DB) ([]string, error) {
-	rows, err := db.Query("SHOW TABLES")
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute SHOW TABLES: %w", err)
-	}
-	defer rows.Close()
-
-	var tables []string
-	for rows.Next() {
-		var tableName string
-		if err := rows.Scan(&tableName); err != nil {
-			return nil, fmt.Errorf("failed to scan table name: %w", err)
-		}
-		// You might want to filter out system tables if necessary
-		// if !strings.HasPrefix(tableName, "sys") && !strings.HasPrefix(tableName, "mysql") {
-		tables = append(tables, tableName)
-		// }
-	}
-	return tables, nil
-}
-
-// getMySQLRows retrieves all rows from a given MySQL table.
-// It returns a slice of maps, where each map represents a row
-// and keys are column names.
-func getMySQLRows(db *sql.DB, tableName, primaryKeyColumn string) ([]map[string]interface{}, error) {
-	query := fmt.Sprintf("SELECT * FROM `%s`", tableName)
-	rows, err := db.Query(query)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query table %s: %w", tableName, err)
-	}
-	defer rows.Close()
-
-	columns, err := rows.Columns()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get columns for table %s: %w", tableName, err)
-	}
-
-	var results []map[string]interface{}
-	for rows.Next() {
-		// Create a slice of interface{} to hold the values for scanning
-		values := make([]interface{}, len(columns))
-		pointers := make([]interface{}, len(columns))
-		for i := range values {
-			pointers[i] = &values[i]
-		}
-
-		if err := rows.Scan(pointers...); err != nil {
-			return nil, fmt.Errorf("failed to scan row from table %s: %w", tableName, err)
-		}
-
-		rowMap := make(map[string]interface{})
-		for i, colName := range columns {
-			val := values[i]
-			if valBytes, ok := val.([]byte); ok {
-				// Handle byte slices (e.g., VARCHAR, TEXT, BLOB) by converting to string
-				rowMap[colName] = string(valBytes)
-			} else {
-				rowMap[colName] = val
-			}
-		}
-		results = append(results, rowMap)
-	}
-
-	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("error during row iteration for table %s: %w", tableName, err)
-	}
-
-	return results, nil
-}
-
 // checkElasticsearchDocument checks if a document with a given ID exists in an Elasticsearch index.
 func checkElasticsearchDocument(client *elastic.Client, index, docID string) (bool, error) {
 	// We only need to check for existence, so a Head request is efficient.

@@ -15,13 +15,16 @@ import (
 	"github.com/elastic/go-elasticsearch/v7"
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
+	"github.com/pingcap/tidb/pkg/parser"
+	"github.com/pingcap/tidb/pkg/parser/ast"
 
 	"github.com/k1-end/mysql-elastic-go/internal/api"
 	"github.com/k1-end/mysql-elastic-go/internal/config"
+	"github.com/k1-end/mysql-elastic-go/internal/database"
+	elasticpack "github.com/k1-end/mysql-elastic-go/internal/elastic"
 	"github.com/k1-end/mysql-elastic-go/internal/logger"
 	syncerpack "github.com/k1-end/mysql-elastic-go/internal/syncer"
 	tablepack "github.com/k1-end/mysql-elastic-go/internal/table"
-	elasticpack "github.com/k1-end/mysql-elastic-go/internal/elastic"
 )
 
 var RestartChannel chan bool
@@ -198,7 +201,7 @@ func convertBinlogRowsToArrayOfMaps(rows [][]interface{}, tableStructure []map[s
     for _, row := range rows {
         var singleRecord = make(map[string]interface{})
         for j, val := range row {
-            columnName, err := getColumnNameFromPosition(tableStructure, j)
+            columnName, err := database.GetColumnNameFromPosition(tableStructure, j)
             if err != nil {
                 return nil, fmt.Errorf("Error getting column name from position %d: %w", j, err)
             }
@@ -412,4 +415,46 @@ func sendDataToElasticFromDumpfile(tableName string, esClient *elasticsearch.Cli
 
     tablepack.SetTableStatus(tableName, "moved")
 	return nil
+}
+
+func processInsertString(tableName string, insertStatement string, tableStructure []map[string]interface{}, esClient *elasticsearch.Client) error {
+    p := parser.New()
+    // Parse the SQL statement
+    // The last two arguments are charset and collation, which can be empty for default.
+    stmtNodes, _, err := p.Parse(insertStatement, "", "")
+    if err != nil {
+        return err
+    }
+    if len(stmtNodes) == 0 {
+        return fmt.Errorf("No statements found.")
+    }
+
+    // We expect a single INSERT statement
+    insertStmt, ok := stmtNodes[0].(*ast.InsertStmt)
+    if !ok {
+        return fmt.Errorf("The provided SQL is not an INSERT statement.")
+    }
+    var values []map[string]interface{} 
+    for i, row := range insertStmt.Lists {
+        var singleRecord = make(map[string]interface{})
+        for j, expr := range row {
+            val, err := database.ExtractValue(expr)
+            if err != nil {
+                MainLogger.Error(fmt.Sprintf("Error extracting value for column %d in row %d: %v\n", j+1, i+1, err))
+				panic(err)
+            }
+            columnName, err := database.GetColumnNameFromPosition(tableStructure, j)
+            if err != nil {
+                return fmt.Errorf("Error getting column name from position %d: %w", j, err)
+            }
+            singleRecord[columnName] = val
+        }
+        values = append(values, singleRecord)
+    }
+
+    err = elasticpack.BulkSendToElastic(tableName, values, esClient, MainLogger)
+    if err != nil {
+        return err
+    }
+    return nil
 }

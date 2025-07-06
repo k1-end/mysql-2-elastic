@@ -351,7 +351,7 @@ func sendDataToElasticFromDumpfile(tableName string, esClient *elasticsearch.Cli
     syncerpack.WriteTableStructureFromDumpfile(tableName)
 	tableStructure, _ := tablepack.GetTableStructure(syncerpack.GetDumpTableStructureFilePath(tableName))
 
-	currentOffset := readLastOffset(progressFile)
+	currentOffset := syncerpack.ReadLastOffset(progressFile)
 	file, err := os.OpenFile(dumpFilePath, os.O_RDONLY, 0644)
 	if err != nil {
 		return fmt.Errorf("failed to open dump file: %w", err)
@@ -398,7 +398,7 @@ func sendDataToElasticFromDumpfile(tableName string, esClient *elasticsearch.Cli
 
 		currentOffset += int64(len(scanner.Bytes())) + 2 // +1 for the newline character consumed by scanner
 		if !inInsertStatement {
-			err = writeCurrentOffset(progressFile, currentOffset)
+			err = syncerpack.WriteCurrentOffset(progressFile, currentOffset)
 			if err != nil {
 				return err
 			}

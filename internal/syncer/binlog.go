@@ -52,3 +52,25 @@ func GetStoredBinlogCoordinates(tableName string) (BinlogPosition, error) {
     return ParseBinlogCoordinatesFile(filePath)
 }
 
+func WriteBinlogPosition(binlogPos BinlogPosition, tableName string) error {
+    jsonData, err := json.Marshal(map[string]interface{}{
+        "logfile": binlogPos.Logfile,
+        "logpos":  binlogPos.Logpos,
+    })
+    if err != nil {
+        return fmt.Errorf("failed to marshal binlog coordinates: %w", err)
+    }
+
+    var filePath string
+    if tableName == "main" {
+        filePath = GetMainBinlogPositionFilePath()
+    } else {
+        filePath = GetTableBinlogPositionFilePath(tableName)
+    }
+    err = os.WriteFile(filePath, jsonData, 0644)
+    if err != nil {
+        return fmt.Errorf("failed to write binlog coordinates to file: %w", err)
+    }
+
+    return nil
+}

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -13,6 +12,7 @@ import (
 	"github.com/elastic/go-elasticsearch/v7"
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
+
 	"github.com/k1-end/mysql-elastic-go/internal/api"
 	"github.com/k1-end/mysql-elastic-go/internal/config"
 	"github.com/k1-end/mysql-elastic-go/internal/database"
@@ -189,29 +189,6 @@ func runTheSyncer(appConfig *config.Config, esClient *elasticsearch.Client, sync
     }
 }
 
-func WriteBinlogPosition(binlogPos syncerpack.BinlogPosition, tableName string) error {
-    jsonData, err := json.Marshal(map[string]interface{}{
-        "logfile": binlogPos.Logfile,
-        "logpos":  binlogPos.Logpos,
-    })
-    if err != nil {
-        return fmt.Errorf("failed to marshal binlog coordinates: %w", err)
-    }
-
-    var filePath string
-    if tableName == "main" {
-        filePath = syncerpack.GetMainBinlogPositionFilePath()
-    } else {
-        filePath = syncerpack.GetTableBinlogPositionFilePath(tableName)
-    }
-    err = os.WriteFile(filePath, jsonData, 0644)
-    if err != nil {
-        return fmt.Errorf("failed to write binlog coordinates to file: %w", err)
-    }
-
-    return nil
-}
-
 func convertBinlogRowsToArrayOfMaps(rows [][]interface{}, tableStructure []map[string]interface{}) ([]map[string]interface{}, error) {
     var values []map[string]interface{} 
     for _, row := range rows {
@@ -307,7 +284,7 @@ func processBinlogEvent(ev *replication.BinlogEvent, currentBinlogPos *syncerpac
         // This event contains the row data for INSERT, UPDATE, DELETE
         eventTableName := string(e.Table.Table) // Get table name from the event
         if !slices.Contains(tableNames, eventTableName) {
-            WriteBinlogPosition(*currentBinlogPos, "main") // Update the position after not registered table or rotation
+            syncerpack.WriteBinlogPosition(*currentBinlogPos, "main") // Update the position after not registered table or rotation
             return nil
         }
         schemaName := string(e.Table.Schema) // Get schema name
@@ -368,6 +345,6 @@ func processBinlogEvent(ev *replication.BinlogEvent, currentBinlogPos *syncerpac
     // DDL changes, etc.
     default:
     }
-    WriteBinlogPosition(*currentBinlogPos, "main") // Update the position after rotation
+    syncerpack.WriteBinlogPosition(*currentBinlogPos, "main") // Update the position after rotation
     return nil
 }

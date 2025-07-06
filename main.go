@@ -107,7 +107,7 @@ func initializeTables(appConfig *config.Config, esClient *elasticsearch.Client, 
 				return fmt.Errorf("failed to get binlog coordinates: %w", err)
 			}
 
-			newerBinlog := GetNewerBinlogPosition(&mainBinlogPos, &tableBinlogPos)
+			newerBinlog := syncerpack.GetNewerBinlogPosition(&mainBinlogPos, &tableBinlogPos)
 
 			if newerBinlog == &mainBinlogPos{
 				// Main binlog is newer, so we need to sync the dump file with the main binlog
@@ -119,7 +119,7 @@ func initializeTables(appConfig *config.Config, esClient *elasticsearch.Client, 
 				}
 			} else if newerBinlog == &tableBinlogPos{
 				MainLogger.Debug("Dump file is newer than main binlog. Syncing main binlog with dump file...")
-				err = SyncMainBinlogTillPosition(tableBinlogPos, esClient, syncer)
+				err = syncMainBinlogTillPosition(tableBinlogPos, esClient, syncer)
 				if err != nil {
 					return fmt.Errorf("failed to sync table until destination: %w", err)
 				}
@@ -205,7 +205,7 @@ func convertBinlogRowsToArrayOfMaps(rows [][]interface{}, tableStructure []map[s
 	return values, nil
 }
 
-func SyncMainBinlogTillPosition(desBinlogPos syncerpack.BinlogPosition, esClient *elasticsearch.Client, syncer *replication.BinlogSyncer) error {
+func syncMainBinlogTillPosition(desBinlogPos syncerpack.BinlogPosition, esClient *elasticsearch.Client, syncer *replication.BinlogSyncer) error {
 	MainLogger.Debug("Syncing main loop")
     currentBinlogPos, err := syncerpack.GetStoredBinlogCoordinates("main")
     if err != nil {
@@ -225,24 +225,6 @@ func SyncMainBinlogTillPosition(desBinlogPos syncerpack.BinlogPosition, esClient
     return err
 }
 
-// If both args are equal, nil will be returned
-func GetNewerBinlogPosition(pos1, pos2 *syncerpack.BinlogPosition) *syncerpack.BinlogPosition {
-    if pos1.Logfile < pos2.Logfile {
-        return pos2
-    } else if pos1.Logfile > pos2.Logfile {
-        return pos1
-    } else {
-        if pos1.Logpos < pos2.Logpos {
-            return pos2
-        } else if pos1.Logpos > pos2.Logpos {
-            return pos1
-        } else {
-            return nil // They are equal
-        }
-    }
-}
-
-
 func SyncTablesTillDestination(tableNames []string, desBinlogPos, currentBinlogPos syncerpack.BinlogPosition, esClient *elasticsearch.Client, syncer *replication.BinlogSyncer) error {
 	MainLogger.Debug("Syncing: " + strings.Join(tableNames[:], ","))
 
@@ -252,7 +234,7 @@ func SyncTablesTillDestination(tableNames []string, desBinlogPos, currentBinlogP
         Pos: currentBinlogPos.Logpos,
     })
 
-    for GetNewerBinlogPosition(&currentBinlogPos, &desBinlogPos) == &desBinlogPos {
+    for syncerpack.GetNewerBinlogPosition(&currentBinlogPos, &desBinlogPos) == &desBinlogPos {
 		ev, err := streamer.GetEvent(context.Background())
 		if err != nil {
 			MainLogger.Error(err.Error())

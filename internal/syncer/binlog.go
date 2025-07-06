@@ -74,3 +74,22 @@ func WriteBinlogPosition(binlogPos BinlogPosition, tableName string) error {
 
     return nil
 }
+
+// If both args are equal, nil will be returned
+func GetNewerBinlogPosition(pos1, pos2 *BinlogPosition) *BinlogPosition {
+    if pos1.Logfile < pos2.Logfile {
+        return pos2
+    } else if pos1.Logfile > pos2.Logfile {
+        return pos1
+    } else {
+        if pos1.Logpos < pos2.Logpos {
+            return pos2
+        } else if pos1.Logpos > pos2.Logpos {
+            return pos1
+        } else {
+            return nil // They are equal
+        }
+    }
+}
+
+

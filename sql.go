@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/elastic/go-elasticsearch/v7"
+	"github.com/k1-end/mysql-elastic-go/internal/elastic"
 	"github.com/pingcap/tidb/pkg/parser"
 	"github.com/pingcap/tidb/pkg/parser/ast"
 )
@@ -77,7 +78,7 @@ func processInsertString(tableName string, insertStatement string, tableStructur
         values = append(values, singleRecord)
     }
 
-    err = bulkSendToElastic(tableName, values, esClient)
+    err = elastic.BulkSendToElastic(tableName, values, esClient, MainLogger)
     if err != nil {
         return err
     }

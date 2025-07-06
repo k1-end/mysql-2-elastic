@@ -21,6 +21,7 @@ import (
 	"github.com/k1-end/mysql-elastic-go/internal/logger"
 	syncerpack "github.com/k1-end/mysql-elastic-go/internal/syncer"
 	tablepack "github.com/k1-end/mysql-elastic-go/internal/table"
+	elasticpack "github.com/k1-end/mysql-elastic-go/internal/elastic"
 )
 
 var RestartChannel chan bool
@@ -40,7 +41,7 @@ func main() {
 		MainLogger.Error(err.Error())
 		os.Exit(1)
 	}
-	esClient, err := getElasticClient(appConfig)
+	esClient, err := elasticpack.GetElasticClient(appConfig)
     if err != nil {
 		MainLogger.Error(err.Error())
 		panic(err)
@@ -285,7 +286,7 @@ func processBinlogEvent(ev *replication.BinlogEvent, currentBinlogPos *syncerpac
 				MainLogger.Error(err.Error())
 				return err
 			}
-			err = bulkSendToElastic(eventTableName, records, esClient)
+			err = elasticpack.BulkSendToElastic(eventTableName, records, esClient, MainLogger)
 			if err != nil {
 				MainLogger.Error(err.Error())
 				return fmt.Errorf("Error sending data to Elastic: %w", err)
@@ -307,7 +308,7 @@ func processBinlogEvent(ev *replication.BinlogEvent, currentBinlogPos *syncerpac
 				MainLogger.Error(err.Error())
 				return err
 			}
-			err = bulkUpdateToElastic(eventTableName, records, esClient)
+			err = elasticpack.BulkUpdateToElastic(eventTableName, records, esClient, MainLogger)
 			if err != nil {
 				MainLogger.Error(err.Error())
 				return err
@@ -320,7 +321,7 @@ func processBinlogEvent(ev *replication.BinlogEvent, currentBinlogPos *syncerpac
 				MainLogger.Error(err.Error())
 				return err
 			}
-			err = bulkDeleteFromElastic(eventTableName, records, esClient)
+			err = elasticpack.BulkDeleteFromElastic(eventTableName, records, esClient, MainLogger)
 			if err != nil {
 				MainLogger.Error(err.Error())
 				return err

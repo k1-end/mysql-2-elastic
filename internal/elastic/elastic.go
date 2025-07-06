@@ -1,4 +1,4 @@
-package main
+package elastic
 
 import (
 	"bytes"
@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/elastic/go-elasticsearch/v7"
@@ -13,7 +14,7 @@ import (
 	"github.com/k1-end/mysql-elastic-go/internal/config"
 )
 
-func getElasticClient(appConfig *config.Config) (*elasticsearch.Client, error){
+func GetElasticClient(appConfig *config.Config) (*elasticsearch.Client, error){
 
     cfg := elasticsearch.Config{
         Addresses: []string{
@@ -33,11 +34,10 @@ func getElasticClient(appConfig *config.Config) (*elasticsearch.Client, error){
 		return nil, fmt.Errorf("Error getting Elasticsearch info: %s", err)
     }
     defer res.Body.Close()
-	MainLogger.Debug("Elasticsearch Info:" + res.Status())
 	return es, nil
 }
 
-func bulkSendToElastic(indexName string, documents []map[string]interface{}, esClient *elasticsearch.Client) error{
+func BulkSendToElastic(indexName string, documents []map[string]interface{}, esClient *elasticsearch.Client, logger *slog.Logger) error{
     if len(documents) == 0 {
         return fmt.Errorf("no documents to index")
     }
@@ -56,7 +56,7 @@ func bulkSendToElastic(indexName string, documents []map[string]interface{}, esC
 
         metaBytes, err := json.Marshal(meta)
         if err != nil {
-            MainLogger.Debug(fmt.Sprintf("Error marshaling bulk metadata: %s", err))
+            logger.Debug(fmt.Sprintf("Error marshaling bulk metadata: %s", err))
             continue // Or handle error more robustly
         }
         buf.Write(metaBytes)
@@ -65,7 +65,7 @@ func bulkSendToElastic(indexName string, documents []map[string]interface{}, esC
         // Prepare the document source
         docBytes, err := json.Marshal(doc)
         if err != nil {
-            MainLogger.Debug(fmt.Sprintf("Error marshaling document: %s for doc: %+v", err, doc))
+            logger.Debug(fmt.Sprintf("Error marshaling document: %s for doc: %+v", err, doc))
             continue // Or handle error more robustly
         }
         buf.Write(docBytes)
@@ -102,7 +102,7 @@ func bulkSendToElastic(indexName string, documents []map[string]interface{}, esC
 
     // You can optionally parse the response to check for individual item errors
     // For brevity, this example doesn't parse the full bulk response items.
-	MainLogger.Debug("Bulk indexing successful or partially successful. Response Status:" + res.Status())
+	logger.Debug("Bulk indexing successful or partially successful. Response Status:" + res.Status())
     // To see the full response, you can read res.Body
     // responseBody, _ := io.ReadAll(res.Body)
     // log.Printf("Full response: %s", string(responseBody))
@@ -110,7 +110,7 @@ func bulkSendToElastic(indexName string, documents []map[string]interface{}, esC
     return nil
 }
 
-func bulkUpdateToElastic(indexName string, documents []map[string]interface{}, esClient *elasticsearch.Client) error{
+func BulkUpdateToElastic(indexName string, documents []map[string]interface{}, esClient *elasticsearch.Client, logger *slog.Logger) error{
     if len(documents) == 0 {
         return fmt.Errorf("no documents to index")
     }
@@ -149,7 +149,7 @@ func bulkUpdateToElastic(indexName string, documents []map[string]interface{}, e
         }
         metaBytes, err := json.Marshal(meta)
         if err != nil {
-            MainLogger.Error(fmt.Sprintf("Error marshaling meta1: %s", err))
+            logger.Error(fmt.Sprintf("Error marshaling meta1: %s", err))
 			panic(err)
         }
         bulkBody.Write(metaBytes)
@@ -159,13 +159,13 @@ func bulkUpdateToElastic(indexName string, documents []map[string]interface{}, e
             "doc": doc,
         })
         if err != nil {
-            MainLogger.Error(fmt.Sprintf("Error marshaling docUpdate1: %s", err))
+            logger.Error(fmt.Sprintf("Error marshaling docUpdate1: %s", err))
 			panic(err)
         }
         bulkBody.Write(docBytes)
         bulkBody.WriteString("\n")
 		if err != nil {
-			MainLogger.Error(fmt.Sprintf("Unexpected error adding item '%s' to BulkIndexer: %s", id, err))
+			logger.Error(fmt.Sprintf("Unexpected error adding item '%s' to BulkIndexer: %s", id, err))
 			panic(err)
 		}
     }
@@ -174,28 +174,28 @@ func bulkUpdateToElastic(indexName string, documents []map[string]interface{}, e
 		bytes.NewReader([]byte(bulkBody.String())),
 		esClient.Bulk.WithContext(context.Background()),
 	)
-	MainLogger.Debug(bulkBody.String())
+	logger.Debug(bulkBody.String())
 
     defer res.Body.Close()
 
     if res.IsError() {
 		var e map[string]interface{}
 		if err := json.NewDecoder(res.Body).Decode(&e); err != nil {
-			MainLogger.Error(fmt.Sprintf("Error parsing the response body: %s", err))
+			logger.Error(fmt.Sprintf("Error parsing the response body: %s", err))
 		}
-		MainLogger.Error(fmt.Sprintf("Elasticsearch returned an error [%s]: %s", res.Status(), e["error"]))
+		logger.Error(fmt.Sprintf("Elasticsearch returned an error [%s]: %s", res.Status(), e["error"]))
 		panic(err)
 	}
 
     var bulkRes map[string]interface{}
 	if err := json.NewDecoder(res.Body).Decode(&bulkRes); err != nil {
-		MainLogger.Error("Error parsing the bulk response: %s", err)
+		logger.Error("Error parsing the bulk response: %s", err)
 		panic(err)
 	}
 
-	MainLogger.Debug("\n--- Bulk Operation Response ---")
+	logger.Debug("\n--- Bulk Operation Response ---")
 	if errors, ok := bulkRes["errors"].(bool); ok && errors {
-		MainLogger.Debug("Warning: Some items failed in the bulk request!")
+		logger.Debug("Warning: Some items failed in the bulk request!")
 		if items, ok := bulkRes["items"].([]interface{}); ok {
 			for i, item := range items {
 				itemMap := item.(map[string]interface{})
@@ -203,42 +203,42 @@ func bulkUpdateToElastic(indexName string, documents []map[string]interface{}, e
 					if status, ok := updateStatus["status"].(float64); ok && status >= 400 {
 						failedUpdates++
 						errorInfo := updateStatus["error"].(map[string]interface{})
-						MainLogger.Debug(fmt.Sprintf("  Item %d (ID: %s) FAILED: %s - %s\n", i+1, updateStatus["_id"], errorInfo["type"], errorInfo["reason"]))
+						logger.Debug(fmt.Sprintf("  Item %d (ID: %s) FAILED: %s - %s\n", i+1, updateStatus["_id"], errorInfo["type"], errorInfo["reason"]))
 					} else {
 						successfulUpdates++
-						MainLogger.Debug(fmt.Sprintf("  Item %d (ID: %s) SUCCESS: Version %d\n", i+1, updateStatus["_id"], int(updateStatus["_version"].(float64))))
+						logger.Debug(fmt.Sprintf("  Item %d (ID: %s) SUCCESS: Version %d\n", i+1, updateStatus["_id"], int(updateStatus["_version"].(float64))))
 					}
 				}
 			}
 		}
 	} else {
-		MainLogger.Debug("All items in the bulk request were successful!")
+		logger.Debug("All items in the bulk request were successful!")
 		if items, ok := bulkRes["items"].([]interface{}); ok {
 			for i, item := range items {
 				itemMap := item.(map[string]interface{})
 				if updateStatus, ok := itemMap["update"].(map[string]interface{}); ok {
 					successfulUpdates++
-					MainLogger.Debug(fmt.Sprintf("  Item %d (ID: %s) SUCCESS: Version %d\n", i+1, updateStatus["_id"], int(updateStatus["_version"].(float64))))
+					logger.Debug(fmt.Sprintf("  Item %d (ID: %s) SUCCESS: Version %d\n", i+1, updateStatus["_id"], int(updateStatus["_version"].(float64))))
 				}
 			}
 		}
 	}
 
-	MainLogger.Debug("\n--- Bulk Update Summary ---\n")
-	MainLogger.Debug(fmt.Sprintf("Total documents attempted: %d\n", len(documents)))
-	MainLogger.Debug(fmt.Sprintf("Successful updates: %d\n", successfulUpdates))
-	MainLogger.Debug(fmt.Sprintf("Failed updates: %d\n", failedUpdates))
+	logger.Debug("\n--- Bulk Update Summary ---\n")
+	logger.Debug(fmt.Sprintf("Total documents attempted: %d\n", len(documents)))
+	logger.Debug(fmt.Sprintf("Successful updates: %d\n", successfulUpdates))
+	logger.Debug(fmt.Sprintf("Failed updates: %d\n", failedUpdates))
 
 	if failedUpdates == 0 {
-		MainLogger.Debug("All documents updated successfully!")
+		logger.Debug("All documents updated successfully!")
 	} else {
-		MainLogger.Debug("Some documents failed to update. Check logs above.")
+		logger.Debug("Some documents failed to update. Check logs above.")
 	}
     return nil
 }
 
 
-func bulkDeleteFromElastic(indexName string, documents []map[string]interface{}, esClient *elasticsearch.Client) error {
+func BulkDeleteFromElastic(indexName string, documents []map[string]interface{}, esClient *elasticsearch.Client, logger *slog.Logger) error {
 
 	// --- Build the NDJSON request body ---
 	// Each delete operation requires one line:
@@ -261,7 +261,7 @@ func bulkDeleteFromElastic(indexName string, documents []map[string]interface{},
             // If the ID is an int, convert it to string
             id = fmt.Sprintf("%d", v)
         default:
-            MainLogger.Error(fmt.Sprintf("Unexpected type for ID: %T\n", v))
+            logger.Error(fmt.Sprintf("Unexpected type for ID: %T\n", v))
 			panic(nil)
             
         }
@@ -273,7 +273,7 @@ func bulkDeleteFromElastic(indexName string, documents []map[string]interface{},
         }
         metaBytes, err := json.Marshal(meta)
         if err != nil {
-            MainLogger.Error(fmt.Sprintf("Error marshaling meta1: %s", err))
+            logger.Error(fmt.Sprintf("Error marshaling meta1: %s", err))
 			panic(err)
         }
         bulkBody.Write(metaBytes)
@@ -281,7 +281,7 @@ func bulkDeleteFromElastic(indexName string, documents []map[string]interface{},
     }
 
 	// --- Send the bulk request ---
-	MainLogger.Debug("Sending bulk delete request for documents ...\n")
+	logger.Debug("Sending bulk delete request for documents ...\n")
 
 	// Refresh the index immediately after the bulk operation for searchability (optional, for testing)
 	refresh := "wait_for" // or "true" for immediate refresh, or "" for default
@@ -292,7 +292,7 @@ func bulkDeleteFromElastic(indexName string, documents []map[string]interface{},
 		esClient.Bulk.WithRefresh(refresh), // Apply refresh setting
 	)
 	if err != nil {
-		MainLogger.Error(fmt.Sprintf("FATAL ERROR: %s", err))
+		logger.Error(fmt.Sprintf("FATAL ERROR: %s", err))
 		panic(err)
 	}
 	defer res.Body.Close()
@@ -301,22 +301,22 @@ func bulkDeleteFromElastic(indexName string, documents []map[string]interface{},
 	if res.IsError() {
 		var e map[string]interface{}
 		if err := json.NewDecoder(res.Body).Decode(&e); err != nil {
-			MainLogger.Error(fmt.Sprintf("Error parsing the response body: %s", err))
+			logger.Error(fmt.Sprintf("Error parsing the response body: %s", err))
 			panic(err)
 		}
-		MainLogger.Error(fmt.Sprintf("Elasticsearch returned an error [%s]: %s", res.Status(), e["error"]))
+		logger.Error(fmt.Sprintf("Elasticsearch returned an error [%s]: %s", res.Status(), e["error"]))
 		panic(err)
 	}
 
 	var bulkRes map[string]interface{}
 	if err := json.NewDecoder(res.Body).Decode(&bulkRes); err != nil {
-		MainLogger.Error(fmt.Sprintf("Error parsing the bulk response: %s", err))
+		logger.Error(fmt.Sprintf("Error parsing the bulk response: %s", err))
 		panic(err)
 	}
 
-	MainLogger.Debug("\n--- Bulk Delete Operation Response ---")
+	logger.Debug("\n--- Bulk Delete Operation Response ---")
 	if errors, ok := bulkRes["errors"].(bool); ok && errors {
-		MainLogger.Debug("Warning: Some items failed in the bulk request!")
+		logger.Debug("Warning: Some items failed in the bulk request!")
 		if items, ok := bulkRes["items"].([]interface{}); ok {
 			for i, item := range items {
 				itemMap := item.(map[string]interface{})
@@ -324,36 +324,36 @@ func bulkDeleteFromElastic(indexName string, documents []map[string]interface{},
 					if status, ok := deleteStatus["status"].(float64); ok && status >= 400 {
 						failedDeletes++
 						errorInfo := deleteStatus["error"].(map[string]interface{})
-						MainLogger.Debug(fmt.Sprintf("  Item %d (ID: %s) FAILED: %s - %s\n", i+1, deleteStatus["_id"], errorInfo["type"], errorInfo["reason"]))
+						logger.Debug(fmt.Sprintf("  Item %d (ID: %s) FAILED: %s - %s\n", i+1, deleteStatus["_id"], errorInfo["type"], errorInfo["reason"]))
 					} else {
 						successfulDeletes++
-						MainLogger.Debug(fmt.Sprintf("  Item %d (ID: %s) SUCCESS: Version %d\n", i+1, deleteStatus["_id"], int(deleteStatus["_version"].(float64))))
+						logger.Debug(fmt.Sprintf("  Item %d (ID: %s) SUCCESS: Version %d\n", i+1, deleteStatus["_id"], int(deleteStatus["_version"].(float64))))
 					}
 				}
 			}
 		}
 	} else {
-		MainLogger.Debug("All items in the bulk request were successful!")
+		logger.Debug("All items in the bulk request were successful!")
 		if items, ok := bulkRes["items"].([]interface{}); ok {
 			for i, item := range items {
 				itemMap := item.(map[string]interface{})
 				if deleteStatus, ok := itemMap["delete"].(map[string]interface{}); ok {
 					successfulDeletes++
-					MainLogger.Debug(fmt.Sprintf("  Item %d (ID: %s) SUCCESS: Version %d\n", i+1, deleteStatus["_id"], int(deleteStatus["_version"].(float64))))
+					logger.Debug(fmt.Sprintf("  Item %d (ID: %s) SUCCESS: Version %d\n", i+1, deleteStatus["_id"], int(deleteStatus["_version"].(float64))))
 				}
 			}
 		}
 	}
 
-	MainLogger.Debug(fmt.Sprintf("\n--- Bulk Delete Summary ---\n"))
-	MainLogger.Debug(fmt.Sprintf("Total documents attempted to delete: %d\n", len(documents)))
-	MainLogger.Debug(fmt.Sprintf("Successful deletes: %d\n", successfulDeletes))
-	MainLogger.Debug(fmt.Sprintf("Failed deletes: %d\n", failedDeletes))
+	logger.Debug(fmt.Sprintf("\n--- Bulk Delete Summary ---\n"))
+	logger.Debug(fmt.Sprintf("Total documents attempted to delete: %d\n", len(documents)))
+	logger.Debug(fmt.Sprintf("Successful deletes: %d\n", successfulDeletes))
+	logger.Debug(fmt.Sprintf("Failed deletes: %d\n", failedDeletes))
 
 	if failedDeletes == 0 {
-		MainLogger.Debug("All documents deleted successfully!")
+		logger.Debug("All documents deleted successfully!")
 	} else {
-		MainLogger.Debug("Some documents failed to delete. Check logs above.")
+		logger.Debug("Some documents failed to delete. Check logs above.")
 	}
     return nil
 }

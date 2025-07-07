@@ -37,21 +37,21 @@ func GetElasticClient(appConfig *config.Config) (*elasticsearch.Client, error){
 	return es, nil
 }
 
-func BulkSendToElastic(indexName string, documents []map[string]interface{}, esClient *elasticsearch.Client, logger *slog.Logger) error{
+func BulkSendToElastic(indexName string, documents []map[string]any, esClient *elasticsearch.Client, logger *slog.Logger) error{
     if len(documents) == 0 {
         return fmt.Errorf("no documents to index")
     }
     var buf bytes.Buffer
     for _, doc := range documents {
         // Prepare the metadata for the bulk operation (index action)
-        meta := map[string]interface{}{
-            "index": map[string]interface{}{
+        meta := map[string]any{
+            "index": map[string]any{
                 "_index": indexName,
             },
         }
         // If your document has an "id" field, you can use it for the document ID in Elasticsearch
         if docID, ok := doc["id"]; ok {
-            meta["index"].(map[string]interface{})["_id"] = fmt.Sprintf("%v", docID)
+            meta["index"].(map[string]any)["_id"] = fmt.Sprintf("%v", docID)
         }
 
         metaBytes, err := json.Marshal(meta)
@@ -89,14 +89,14 @@ func BulkSendToElastic(indexName string, documents []map[string]interface{}, esC
     defer res.Body.Close()
 
     if res.IsError() {
-        var raw map[string]interface{}
+        var raw map[string]any
         if err := json.NewDecoder(res.Body).Decode(&raw); err != nil {
             return fmt.Errorf("failure to parse response body: %s", err)
         }
         return fmt.Errorf("bulk request failed: [%s] %s: %s",
             res.Status(),
-            raw["error"].(map[string]interface{})["type"],
-            raw["error"].(map[string]interface{})["reason"],
+            raw["error"].(map[string]any)["type"],
+            raw["error"].(map[string]any)["reason"],
             )
     }
 
@@ -110,7 +110,7 @@ func BulkSendToElastic(indexName string, documents []map[string]interface{}, esC
     return nil
 }
 
-func BulkUpdateToElastic(indexName string, documents []map[string]interface{}, esClient *elasticsearch.Client, logger *slog.Logger) error{
+func BulkUpdateToElastic(indexName string, documents []map[string]any, esClient *elasticsearch.Client, logger *slog.Logger) error{
     if len(documents) == 0 {
         return fmt.Errorf("no documents to index")
     }
@@ -141,8 +141,8 @@ func BulkUpdateToElastic(indexName string, documents []map[string]interface{}, e
 			return errors.New(fmt.Sprintf("Unexpected type for ID: %T\n", v))
         }
 
-        meta := map[string]interface{}{
-            "update": map[string]interface{}{
+        meta := map[string]any{
+            "update": map[string]any{
                 "_index": indexName,
                 "_id":    id,
             },
@@ -155,7 +155,7 @@ func BulkUpdateToElastic(indexName string, documents []map[string]interface{}, e
         bulkBody.Write(metaBytes)
         bulkBody.WriteString("\n")
 
-        docBytes, err := json.Marshal(map[string]interface{}{
+        docBytes, err := json.Marshal(map[string]any{
             "doc": doc,
         })
         if err != nil {
@@ -179,7 +179,7 @@ func BulkUpdateToElastic(indexName string, documents []map[string]interface{}, e
     defer res.Body.Close()
 
     if res.IsError() {
-		var e map[string]interface{}
+		var e map[string]any
 		if err := json.NewDecoder(res.Body).Decode(&e); err != nil {
 			logger.Error(fmt.Sprintf("Error parsing the response body: %s", err))
 		}
@@ -187,7 +187,7 @@ func BulkUpdateToElastic(indexName string, documents []map[string]interface{}, e
 		panic(err)
 	}
 
-    var bulkRes map[string]interface{}
+    var bulkRes map[string]any
 	if err := json.NewDecoder(res.Body).Decode(&bulkRes); err != nil {
 		logger.Error("Error parsing the bulk response: %s", err)
 		panic(err)
@@ -196,13 +196,13 @@ func BulkUpdateToElastic(indexName string, documents []map[string]interface{}, e
 	logger.Debug("\n--- Bulk Operation Response ---")
 	if errors, ok := bulkRes["errors"].(bool); ok && errors {
 		logger.Debug("Warning: Some items failed in the bulk request!")
-		if items, ok := bulkRes["items"].([]interface{}); ok {
+		if items, ok := bulkRes["items"].([]any); ok {
 			for i, item := range items {
-				itemMap := item.(map[string]interface{})
-				if updateStatus, ok := itemMap["update"].(map[string]interface{}); ok {
+				itemMap := item.(map[string]any)
+				if updateStatus, ok := itemMap["update"].(map[string]any); ok {
 					if status, ok := updateStatus["status"].(float64); ok && status >= 400 {
 						failedUpdates++
-						errorInfo := updateStatus["error"].(map[string]interface{})
+						errorInfo := updateStatus["error"].(map[string]any)
 						logger.Debug(fmt.Sprintf("  Item %d (ID: %s) FAILED: %s - %s\n", i+1, updateStatus["_id"], errorInfo["type"], errorInfo["reason"]))
 					} else {
 						successfulUpdates++
@@ -213,10 +213,10 @@ func BulkUpdateToElastic(indexName string, documents []map[string]interface{}, e
 		}
 	} else {
 		logger.Debug("All items in the bulk request were successful!")
-		if items, ok := bulkRes["items"].([]interface{}); ok {
+		if items, ok := bulkRes["items"].([]any); ok {
 			for i, item := range items {
-				itemMap := item.(map[string]interface{})
-				if updateStatus, ok := itemMap["update"].(map[string]interface{}); ok {
+				itemMap := item.(map[string]any)
+				if updateStatus, ok := itemMap["update"].(map[string]any); ok {
 					successfulUpdates++
 					logger.Debug(fmt.Sprintf("  Item %d (ID: %s) SUCCESS: Version %d\n", i+1, updateStatus["_id"], int(updateStatus["_version"].(float64))))
 				}
@@ -238,7 +238,7 @@ func BulkUpdateToElastic(indexName string, documents []map[string]interface{}, e
 }
 
 
-func BulkDeleteFromElastic(indexName string, documents []map[string]interface{}, esClient *elasticsearch.Client, logger *slog.Logger) error {
+func BulkDeleteFromElastic(indexName string, documents []map[string]any, esClient *elasticsearch.Client, logger *slog.Logger) error {
 
 	// --- Build the NDJSON request body ---
 	// Each delete operation requires one line:
@@ -265,8 +265,8 @@ func BulkDeleteFromElastic(indexName string, documents []map[string]interface{},
 			panic(nil)
             
         }
-        meta := map[string]interface{}{
-            "delete": map[string]interface{}{
+        meta := map[string]any{
+            "delete": map[string]any{
                 "_index": indexName,
                 "_id":    id,
             },
@@ -299,7 +299,7 @@ func BulkDeleteFromElastic(indexName string, documents []map[string]interface{},
 
 	// --- Process the response synchronously ---
 	if res.IsError() {
-		var e map[string]interface{}
+		var e map[string]any
 		if err := json.NewDecoder(res.Body).Decode(&e); err != nil {
 			logger.Error(fmt.Sprintf("Error parsing the response body: %s", err))
 			panic(err)
@@ -308,7 +308,7 @@ func BulkDeleteFromElastic(indexName string, documents []map[string]interface{},
 		panic(err)
 	}
 
-	var bulkRes map[string]interface{}
+	var bulkRes map[string]any
 	if err := json.NewDecoder(res.Body).Decode(&bulkRes); err != nil {
 		logger.Error(fmt.Sprintf("Error parsing the bulk response: %s", err))
 		panic(err)
@@ -317,13 +317,13 @@ func BulkDeleteFromElastic(indexName string, documents []map[string]interface{},
 	logger.Debug("\n--- Bulk Delete Operation Response ---")
 	if errors, ok := bulkRes["errors"].(bool); ok && errors {
 		logger.Debug("Warning: Some items failed in the bulk request!")
-		if items, ok := bulkRes["items"].([]interface{}); ok {
+		if items, ok := bulkRes["items"].([]any); ok {
 			for i, item := range items {
-				itemMap := item.(map[string]interface{})
-				if deleteStatus, ok := itemMap["delete"].(map[string]interface{}); ok {
+				itemMap := item.(map[string]any)
+				if deleteStatus, ok := itemMap["delete"].(map[string]any); ok {
 					if status, ok := deleteStatus["status"].(float64); ok && status >= 400 {
 						failedDeletes++
-						errorInfo := deleteStatus["error"].(map[string]interface{})
+						errorInfo := deleteStatus["error"].(map[string]any)
 						logger.Debug(fmt.Sprintf("  Item %d (ID: %s) FAILED: %s - %s\n", i+1, deleteStatus["_id"], errorInfo["type"], errorInfo["reason"]))
 					} else {
 						successfulDeletes++
@@ -334,10 +334,10 @@ func BulkDeleteFromElastic(indexName string, documents []map[string]interface{},
 		}
 	} else {
 		logger.Debug("All items in the bulk request were successful!")
-		if items, ok := bulkRes["items"].([]interface{}); ok {
+		if items, ok := bulkRes["items"].([]any); ok {
 			for i, item := range items {
-				itemMap := item.(map[string]interface{})
-				if deleteStatus, ok := itemMap["delete"].(map[string]interface{}); ok {
+				itemMap := item.(map[string]any)
+				if deleteStatus, ok := itemMap["delete"].(map[string]any); ok {
 					successfulDeletes++
 					logger.Debug(fmt.Sprintf("  Item %d (ID: %s) SUCCESS: Version %d\n", i+1, deleteStatus["_id"], int(deleteStatus["_version"].(float64))))
 				}

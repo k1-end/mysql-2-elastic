@@ -7,7 +7,7 @@ import (
 )
 
 
-func ExtractValue(expr ast.ExprNode) (interface{}, error) {
+func ExtractValue(expr ast.ExprNode) (any, error) {
     switch v := expr.(type) {
     case ast.ValueExpr:
         return v.GetValue(), nil
@@ -22,7 +22,7 @@ func ExtractValue(expr ast.ExprNode) (interface{}, error) {
 }
 
 
-func GetColumnNameFromPosition(tableStructure []map[string]interface{}, position int) (string, error) {
+func GetColumnNameFromPosition(tableStructure []map[string]any, position int) (string, error) {
     for _, col := range tableStructure {
         if pos, ok := col["position"].(float64); ok {
             if int(pos) == position {

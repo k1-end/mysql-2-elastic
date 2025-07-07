@@ -50,7 +50,7 @@ func GetRegisteredTables() map[string]RegisteredTable {
 	return tables
 }
 
-func GetTableStructure(structurePath string) ([]map[string]interface{}, error) {
+func GetTableStructure(structurePath string) ([]map[string]any, error) {
     jsonFile, err := os.Open(structurePath)
     defer jsonFile.Close()
     if err != nil {
@@ -61,7 +61,7 @@ func GetTableStructure(structurePath string) ([]map[string]interface{}, error) {
     if err != nil {
         return nil, fmt.Errorf("Failed to read structure file: %w", err)
     }
-    var result []map[string]interface{}
+    var result []map[string]any
 
     err = json.Unmarshal(byteValue, &result)
     if err != nil {

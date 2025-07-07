@@ -8,7 +8,7 @@ import (
 // getMySQLRows retrieves all rows from a given MySQL table.
 // It returns a slice of maps, where each map represents a row
 // and keys are column names.
-func GetMySQLRows(db *sql.DB, tableName, primaryKeyColumn string) ([]map[string]interface{}, error) {
+func GetMySQLRows(db *sql.DB, tableName, primaryKeyColumn string) ([]map[string]any, error) {
 	query := fmt.Sprintf("SELECT * FROM `%s`", tableName)
 	rows, err := db.Query(query)
 	if err != nil {
@@ -21,11 +21,11 @@ func GetMySQLRows(db *sql.DB, tableName, primaryKeyColumn string) ([]map[string]
 		return nil, fmt.Errorf("failed to get columns for table %s: %w", tableName, err)
 	}
 
-	var results []map[string]interface{}
+	var results []map[string]any
 	for rows.Next() {
-		// Create a slice of interface{} to hold the values for scanning
-		values := make([]interface{}, len(columns))
-		pointers := make([]interface{}, len(columns))
+		// Create a slice of any to hold the values for scanning
+		values := make([]any, len(columns))
+		pointers := make([]any, len(columns))
 		for i := range values {
 			pointers[i] = &values[i]
 		}
@@ -34,7 +34,7 @@ func GetMySQLRows(db *sql.DB, tableName, primaryKeyColumn string) ([]map[string]
 			return nil, fmt.Errorf("failed to scan row from table %s: %w", tableName, err)
 		}
 
-		rowMap := make(map[string]interface{})
+		rowMap := make(map[string]any)
 		for i, colName := range columns {
 			val := values[i]
 			if valBytes, ok := val.([]byte); ok {

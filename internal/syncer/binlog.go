@@ -57,7 +57,7 @@ func GetStoredBinlogCoordinates(tableName string) (BinlogPosition, error) {
 }
 
 func WriteBinlogPosition(binlogPos BinlogPosition, tableName string) error {
-    jsonData, err := json.Marshal(map[string]interface{}{
+    jsonData, err := json.Marshal(map[string]any{
         "logfile": binlogPos.Logfile,
         "logpos":  binlogPos.Logpos,
     })

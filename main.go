@@ -196,10 +196,10 @@ func runTheSyncer(appConfig *config.Config, esClient *elasticsearch.Client, sync
     }
 }
 
-func convertBinlogRowsToArrayOfMaps(rows [][]interface{}, tableStructure []map[string]interface{}) ([]map[string]interface{}, error) {
-    var values []map[string]interface{} 
+func convertBinlogRowsToArrayOfMaps(rows [][]any, tableStructure []map[string]any) ([]map[string]any, error) {
+    var values []map[string]any 
     for _, row := range rows {
-        var singleRecord = make(map[string]interface{})
+        var singleRecord = make(map[string]any)
         for j, val := range row {
             columnName, err := database.GetColumnNameFromPosition(tableStructure, j)
             if err != nil {
@@ -300,7 +300,7 @@ func processBinlogEvent(ev *replication.BinlogEvent, currentBinlogPos *syncerpac
             // For UPDATE events, e.Rows contains pairs of [before-image, after-image]
             // The length of e.Rows will be N*2, where N is the number of updated rows.
             tableStructure, _ := tablepack.GetTableStructure(syncerpack.GetDumpTableStructureFilePath(eventTableName))
-            var afterDocs [][]interface{}
+            var afterDocs [][]any
             for i := 0; i < len(e.Rows); i += 2 {
                 afterValues := e.Rows[i+1]
                 afterDocs = append(afterDocs, afterValues)
@@ -417,7 +417,7 @@ func sendDataToElasticFromDumpfile(tableName string, esClient *elasticsearch.Cli
 	return nil
 }
 
-func processInsertString(tableName string, insertStatement string, tableStructure []map[string]interface{}, esClient *elasticsearch.Client) error {
+func processInsertString(tableName string, insertStatement string, tableStructure []map[string]any, esClient *elasticsearch.Client) error {
     p := parser.New()
     // Parse the SQL statement
     // The last two arguments are charset and collation, which can be empty for default.
@@ -434,9 +434,9 @@ func processInsertString(tableName string, insertStatement string, tableStructur
     if !ok {
         return fmt.Errorf("The provided SQL is not an INSERT statement.")
     }
-    var values []map[string]interface{} 
+    var values []map[string]any 
     for i, row := range insertStmt.Lists {
-        var singleRecord = make(map[string]interface{})
+        var singleRecord = make(map[string]any)
         for j, expr := range row {
             val, err := database.ExtractValue(expr)
             if err != nil {

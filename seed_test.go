@@ -190,7 +190,7 @@ func checkElasticsearchDocument(client *elastic.Client, index, docID string) (bo
 // compareDocuments compares two maps representing documents.
 // This is a basic example and might need to be more sophisticated
 // depending on your data types and transformations.
-func compareDocuments(mysqlDoc, esDoc map[string]interface{}) bool {
+func compareDocuments(mysqlDoc, esDoc map[string]any) bool {
 	// A simple check: are all keys from MySQL present in ES with same values?
 	// This does not handle missing keys in MySQL that might be in ES, or type conversions.
 	for k, v := range mysqlDoc {
@@ -208,7 +208,7 @@ func compareDocuments(mysqlDoc, esDoc map[string]interface{}) bool {
 }
 
 // prettyPrintJSON prints a map as indented JSON.
-func prettyPrintJSON(data map[string]interface{}) string {
+func prettyPrintJSON(data map[string]any) string {
 	b, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
 		MainLogger.Debug(fmt.Sprintf("Error marshalling JSON: %v", err))

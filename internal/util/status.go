@@ -14,7 +14,7 @@ func IsServerFree() bool {
 	defer jsonFile.Close()
 	byteValue, _ := io.ReadAll(jsonFile)
 
-	var status map[string]interface{}
+	var status map[string]any
 	json.Unmarshal(byteValue, &status)
 
 	if status["status"] == "free" {

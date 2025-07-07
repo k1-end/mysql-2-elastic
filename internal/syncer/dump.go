@@ -141,7 +141,7 @@ func WriteDumpfilePosition(tableName string) error {
     if err != nil {
         return fmt.Errorf("failed to parse binlog coordinates from dump: %w", err)
     }
-    jsonData, err := json.Marshal(map[string]interface{}{
+    jsonData, err := json.Marshal(map[string]any{
         "logfile": binlogPos.Logfile,
         "logpos":  binlogPos.Logpos,
     })

@@ -54,6 +54,6 @@ func (sw *SlogWriter) Write(p []byte) (n int, err error) {
 	return len(p), nil
 }
 
-func (m *SlogWriter) Printf(format string, v ...interface{}) {
+func (m *SlogWriter) Printf(format string, v ...any) {
     m.logger.Info(fmt.Sprintf(format, v...))
 }

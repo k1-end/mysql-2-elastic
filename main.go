@@ -212,6 +212,7 @@ func convertBinlogRowsToArrayOfMaps(rows [][]any, tableStructure []map[string]an
 	return values, nil
 }
 
+//TODO: refactor: deassemble this function
 func syncMainBinlogTillPosition(desBinlogPos syncerpack.BinlogPosition, esClient *elasticsearch.Client, syncer *replication.BinlogSyncer) error {
 	MainLogger.Debug("Syncing main loop")
     currentBinlogPos, err := syncerpack.GetStoredBinlogCoordinates("main")

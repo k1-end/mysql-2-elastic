@@ -8,7 +8,7 @@ import (
 	"log/slog"
 
 	"github.com/go-mysql-org/go-mysql/replication"
-	"github.com/k1-end/mysql-elastic-go/internal/config"
+	"github.com/k1-end/mysql-2-elastic/internal/config"
 )
 
 // BinlogPosition represents the structure of your JSON data

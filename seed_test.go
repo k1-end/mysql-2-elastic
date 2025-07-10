@@ -13,8 +13,8 @@ import (
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
-	"github.com/k1-end/mysql-elastic-go/internal/config"
-	databasemodule "github.com/k1-end/mysql-elastic-go/internal/database"
+	"github.com/k1-end/mysql-2-elastic/internal/config"
+	databasemodule "github.com/k1-end/mysql-2-elastic/internal/database"
 	"github.com/olivere/elastic/v7"
 )
 

@@ -6,8 +6,8 @@ import (
 	"io"
 	"net/http"
 
-	tablepack "github.com/k1-end/mysql-elastic-go/internal/table"
-	"github.com/k1-end/mysql-elastic-go/internal/util"
+	tablepack "github.com/k1-end/mysql-2-elastic/internal/table"
+	"github.com/k1-end/mysql-2-elastic/internal/util"
 )
 
 func rootHandler(w http.ResponseWriter, r *http.Request) {

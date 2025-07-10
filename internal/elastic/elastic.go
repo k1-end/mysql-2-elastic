@@ -11,7 +11,7 @@ import (
 
 	"github.com/elastic/go-elasticsearch/v7"
 	"github.com/elastic/go-elasticsearch/v7/esapi"
-	"github.com/k1-end/mysql-elastic-go/internal/config"
+	"github.com/k1-end/mysql-2-elastic/internal/config"
 )
 
 func GetElasticClient(appConfig *config.Config) (*elasticsearch.Client, error){

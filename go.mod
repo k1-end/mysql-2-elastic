@@ -1,4 +1,4 @@
-module github.com/k1-end/mysql-elastic-go
+module github.com/k1-end/mysql-2-elastic
 
 go 1.23.4
 
@@ -8,6 +8,7 @@ require (
 	github.com/go-sql-driver/mysql v1.7.1
 	github.com/olivere/elastic/v7 v7.0.32
 	github.com/pingcap/tidb/pkg/parser v0.0.0-20241118164214-4f047be191be
+	github.com/spf13/cobra v1.9.1
 	github.com/spf13/viper v1.20.1
 )
 
@@ -32,7 +33,6 @@ require (
 	github.com/sourcegraph/conc v0.3.0 // indirect
 	github.com/spf13/afero v1.12.0 // indirect
 	github.com/spf13/cast v1.7.1 // indirect
-	github.com/spf13/cobra v1.9.1 // indirect
 	github.com/spf13/pflag v1.0.6 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	go.uber.org/atomic v1.11.0 // indirect

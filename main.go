@@ -18,13 +18,13 @@ import (
 	"github.com/pingcap/tidb/pkg/parser"
 	"github.com/pingcap/tidb/pkg/parser/ast"
 
-	"github.com/k1-end/mysql-elastic-go/internal/api"
-	"github.com/k1-end/mysql-elastic-go/internal/config"
-	"github.com/k1-end/mysql-elastic-go/internal/database"
-	elasticpack "github.com/k1-end/mysql-elastic-go/internal/elastic"
-	"github.com/k1-end/mysql-elastic-go/internal/logger"
-	syncerpack "github.com/k1-end/mysql-elastic-go/internal/syncer"
-	tablepack "github.com/k1-end/mysql-elastic-go/internal/table"
+	"github.com/k1-end/mysql-2-elastic/internal/api"
+	"github.com/k1-end/mysql-2-elastic/internal/config"
+	"github.com/k1-end/mysql-2-elastic/internal/database"
+	elasticpack "github.com/k1-end/mysql-2-elastic/internal/elastic"
+	"github.com/k1-end/mysql-2-elastic/internal/logger"
+	syncerpack "github.com/k1-end/mysql-2-elastic/internal/syncer"
+	tablepack "github.com/k1-end/mysql-2-elastic/internal/table"
 )
 
 var RestartChannel chan bool

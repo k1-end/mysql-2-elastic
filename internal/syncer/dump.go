@@ -14,9 +14,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/k1-end/mysql-elastic-go/internal/config"
-	tablepack "github.com/k1-end/mysql-elastic-go/internal/table"
-	"github.com/k1-end/mysql-elastic-go/internal/util"
+	"github.com/k1-end/mysql-2-elastic/internal/config"
+	tablepack "github.com/k1-end/mysql-2-elastic/internal/table"
+	"github.com/k1-end/mysql-2-elastic/internal/util"
 	"github.com/pingcap/tidb/pkg/parser"
 	"github.com/pingcap/tidb/pkg/parser/ast"
 	_ "github.com/pingcap/tidb/pkg/parser/test_driver" // Required for the parser to work

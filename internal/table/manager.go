@@ -16,6 +16,12 @@ type RegisteredTable struct {
     Status string `json:"status"`
 }
 
+type ColumnInfo struct {
+	Name string `json:"name"`
+    Type string `json:"type"`
+    Position int `json:"positions"`
+}
+
 func SetTableStatus(tableName string, status string) error {
     registeredTables := GetRegisteredTables()
     table, exists := registeredTables[tableName]

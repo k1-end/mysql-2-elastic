@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/k1-end/mysql-2-elastic/internal/config"
+	"github.com/k1-end/mysql-2-elastic/internal/storage"
 	tablepack "github.com/k1-end/mysql-2-elastic/internal/table"
 	"github.com/k1-end/mysql-2-elastic/internal/util"
 	"github.com/pingcap/tidb/pkg/parser"
@@ -165,7 +166,7 @@ func GetDumpFilePath(tableName string) (string) {
    return "data/dumps/" + tableName + "/" + tableName + ".sql"
 }
 
-func InitialDump(tableName string, appConfig *config.Config, logger *slog.Logger) error{
+func InitialDump(tableName string, appConfig *config.Config, logger *slog.Logger, tableStorage storage.TableStorage) error{
     registeredTables := tablepack.GetRegisteredTables()
     table, exists := registeredTables[tableName]
     if !exists {
@@ -177,7 +178,10 @@ func InitialDump(tableName string, appConfig *config.Config, logger *slog.Logger
     }
 
     // Set the table status to "dumping"
-    tablepack.SetTableStatus(tableName, "dumping")
+	err := tableStorage.SetTableStatus(table.Name, "dumping")
+	if err != nil {
+		return fmt.Errorf("set table status %s: %w", table.Name, err)
+	}
 
     args := []string{
         "--skip-ssl-verify",
@@ -229,7 +233,11 @@ func InitialDump(tableName string, appConfig *config.Config, logger *slog.Logger
 		return fmt.Errorf("mysqldump failed: %w", err)
 	}
 
-    tablepack.SetTableStatus(tableName, "dumped")
+	err = tableStorage.SetTableStatus(table.Name, "dumped")
+	if err != nil {
+		return fmt.Errorf("set table status %s: %w", table.Name, err)
+	}
+
 	logger.Debug("Dump completed successfully.")
 
     return nil
@@ -250,10 +258,6 @@ func ClearIncompleteDumpedData(tableName string) error{
             return fmt.Errorf("failed to remove file %s: %w", filePath, err)
         }
     }
-
-    // Reset the table status to "created"
-    tablepack.SetTableStatus(tableName, "created")
-
     return nil
 }
 

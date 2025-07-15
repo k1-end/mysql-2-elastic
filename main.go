@@ -95,7 +95,13 @@ func initializeTables(appConfig *config.Config, esClient *elasticsearch.Client, 
 				MainLogger.Error(fmt.Sprintf("Fatal error ClearIncompleteDumpedData: %v", err))
 				panic(err)
 			}
-            err = syncerpack.InitialDump(table.Name, appConfig, MainLogger)
+			// Reset the table status to "created"
+			err = tableStorage.SetTableStatus(table.Name, "created")
+			if err != nil {
+				return fmt.Errorf("set table status %s: %w", table.Name, err)
+			}
+
+            err = syncerpack.InitialDump(table.Name, appConfig, MainLogger, tableStorage)
 			if err != nil {
 				MainLogger.Error(fmt.Sprintf("Fatal error InitialDump: %v", err))
 				panic(err)

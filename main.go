@@ -126,7 +126,24 @@ func initializeTables(appConfig *config.Config, esClient *elasticsearch.Client, 
 				}
 			} else if newerBinlog == &tableBinlogPos{
 				MainLogger.Debug("Dump file is newer than main binlog. Syncing main binlog with dump file...")
-				err = syncMainBinlogTillPosition(tableBinlogPos, esClient, syncer)
+				currentBinlogPos, err := syncerpack.GetStoredBinlogCoordinates("main")
+				if err != nil {
+					return fmt.Errorf("failed to parse binlog coordinates from dump file: %w", err)
+				}
+
+				registeredTables, err := tableStorage.GetRegisteredTables()
+				if err != nil {
+					MainLogger.Error(err.Error())
+					os.Exit(1)
+				}
+				// filter registeredTables by syncing status
+				var synchingTableNames []string
+				for name, table := range registeredTables {
+					if table.Status == "syncing" {
+						synchingTableNames = append(synchingTableNames, name)
+					}
+				}
+				err = SyncTablesTillDestination(synchingTableNames, tableBinlogPos, currentBinlogPos, esClient, syncer)
 				if err != nil {
 					return fmt.Errorf("failed to sync table until destination: %w", err)
 				}
@@ -210,27 +227,6 @@ func convertBinlogRowsToArrayOfMaps(rows [][]any, tableStructure []map[string]an
         values = append(values, singleRecord)
     }
 	return values, nil
-}
-
-//TODO: refactor: deassemble this function
-func syncMainBinlogTillPosition(desBinlogPos syncerpack.BinlogPosition, esClient *elasticsearch.Client, syncer *replication.BinlogSyncer) error {
-	MainLogger.Debug("Syncing main loop")
-    currentBinlogPos, err := syncerpack.GetStoredBinlogCoordinates("main")
-    if err != nil {
-        return fmt.Errorf("failed to parse binlog coordinates from dump file: %w", err)
-    }
-
-    registeredTables := tablepack.GetRegisteredTables()
-    // filter registeredTables by syncing status
-    var synchingTableNames []string
-    for name, table := range registeredTables {
-        if table.Status == "syncing" {
-            synchingTableNames = append(synchingTableNames, name)
-        }
-    }
-    err = SyncTablesTillDestination(synchingTableNames, desBinlogPos, currentBinlogPos, esClient, syncer)
-
-    return err
 }
 
 func SyncTablesTillDestination(tableNames []string, desBinlogPos, currentBinlogPos syncerpack.BinlogPosition, esClient *elasticsearch.Client, syncer *replication.BinlogSyncer) error {

@@ -16,7 +16,6 @@ import (
 
 	"github.com/k1-end/mysql-2-elastic/internal/config"
 	"github.com/k1-end/mysql-2-elastic/internal/storage"
-	tablepack "github.com/k1-end/mysql-2-elastic/internal/table"
 	"github.com/k1-end/mysql-2-elastic/internal/util"
 	"github.com/pingcap/tidb/pkg/parser"
 	"github.com/pingcap/tidb/pkg/parser/ast"
@@ -167,10 +166,9 @@ func GetDumpFilePath(tableName string) (string) {
 }
 
 func InitialDump(tableName string, appConfig *config.Config, logger *slog.Logger, tableStorage storage.TableStorage) error{
-    registeredTables := tablepack.GetRegisteredTables()
-    table, exists := registeredTables[tableName]
-    if !exists {
-        return fmt.Errorf("table %s not found in registered tables", tableName)
+	table, err := tableStorage.GetTable(tableName)
+    if err != nil {
+        return err
     }
 	logger.Debug("Dumping table: " + table.Name)
     if table.Status != "created" {
@@ -178,7 +176,7 @@ func InitialDump(tableName string, appConfig *config.Config, logger *slog.Logger
     }
 
     // Set the table status to "dumping"
-	err := tableStorage.SetTableStatus(table.Name, "dumping")
+	err = tableStorage.SetTableStatus(table.Name, "dumping")
 	if err != nil {
 		return fmt.Errorf("set table status %s: %w", table.Name, err)
 	}

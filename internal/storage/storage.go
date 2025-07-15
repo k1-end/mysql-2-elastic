@@ -6,4 +6,5 @@ type TableStorage interface {
 	GetRegisteredTables() (map[string]table.RegisteredTable, error)
 	GetTableStatus(tableName string) (string, error)
 	SetTableStatus(tableName string, status string) (error)
+	GetTable(tableName string) (table.RegisteredTable, error)
 }

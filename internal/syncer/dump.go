@@ -16,6 +16,7 @@ import (
 
 	"github.com/k1-end/mysql-2-elastic/internal/config"
 	"github.com/k1-end/mysql-2-elastic/internal/storage"
+	"github.com/k1-end/mysql-2-elastic/internal/table"
 	"github.com/k1-end/mysql-2-elastic/internal/util"
 	"github.com/pingcap/tidb/pkg/parser"
 	"github.com/pingcap/tidb/pkg/parser/ast"
@@ -28,47 +29,58 @@ type columnData struct {
     Position int `json:"position"`
 }
 
-func WriteTableStructureFromDumpfile(tableName string) error {
-
-	createStatement, err := getCreateTableStatementFromDumpFile(GetDumpFilePath(tableName))
-	p := parser.New()
-
-	stmtNodes, _, err := p.Parse(createStatement, "", "")
+func GetTableColsInfoFromDumpFile(tn string) ([]table.ColumnInfo, error) {
+	createStatementStr, err := getCreateTableStatementFromDumpFileAsString(GetDumpFilePath(tn))
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	if len(stmtNodes) == 0 {
-		return fmt.Errorf("No statements found.")
+	createStatement, err := parseCreateStatement(createStatementStr)
+	if err != nil {
+		return nil, err
 	}
 
-	createTableStmt, ok := stmtNodes[0].(*ast.CreateTableStmt)
-	if !ok {
-		return fmt.Errorf("The provided SQL is not a CREATE TABLE statement.")
-	}
+	columnsInfo, err := getColumnsInfoFromCreateStatement(createStatement)
+	return columnsInfo, nil
+}
 
-	var columnDatas []columnData
+func getColumnsInfoFromCreateStatement(cts *ast.CreateTableStmt) ([]table.ColumnInfo, error) {
+	var columnsInfo []table.ColumnInfo
 	position := 0
-	for _, colDef := range createTableStmt.Cols {
+	for _, colDef := range cts.Cols {
 		colName := colDef.Name.Name.O // Column Name
 		colType := colDef.Tp.String() // Data Type string representation
-		columnDatas = append(columnDatas, columnData{
+		columnsInfo = append(columnsInfo, table.ColumnInfo{
 			Name:     colName,
 			Type:     colType,
 			Position: position,
 		})
 		position += 1
 	}
+	return columnsInfo, nil
+}
 
-	jsonData, _ := json.Marshal(columnDatas)
+func parseCreateStatement(ctr string) (*ast.CreateTableStmt, error) {
+	p := parser.New()
 
-	os.WriteFile(GetDumpTableStructureFilePath(tableName), jsonData, 0644)
+	stmtNodes, _, err := p.Parse(ctr, "", "")
+	if err != nil {
+		return nil, err
+	}
 
-	return nil
+	if len(stmtNodes) == 0 {
+		return nil, fmt.Errorf("No statements found.")
+	}
+
+	createTableStmt, ok := stmtNodes[0].(*ast.CreateTableStmt)
+	if !ok {
+		return nil, fmt.Errorf("The provided SQL is not a CREATE TABLE statement.")
+	}
+	return createTableStmt, nil
 }
 
 
-func getCreateTableStatementFromDumpFile(dumpFilePath string) (string, error) {
+func getCreateTableStatementFromDumpFileAsString(dumpFilePath string) (string, error) {
 	file, err := os.Open(dumpFilePath)
 	if err != nil {
         return "", fmt.Errorf("failed to open dump file: %w", err)
@@ -150,10 +162,6 @@ func WriteDumpfilePosition(tableName string) error {
     }
     err = os.WriteFile(GetTableBinlogPositionFilePath(tableName), jsonData, 0644)
     return nil
-}
-
-func GetDumpTableStructureFilePath(tableName string) (string) {
-   return "data/dumps/"+tableName+"/"+tableName+"-structure.json" 
 }
 
 func GetDumpReadProgressFilePath(tableName string) (string) {

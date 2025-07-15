@@ -67,8 +67,14 @@ func (fs *FileStorage) SetTableStatus(tableName string, status string) (error)  
     }
     t.Status = status
     registeredTables[t.Name] = t
-    jsonData, _ := json.Marshal(registeredTables)
-    os.WriteFile(registeredTablesFilePath, jsonData, 0644)
+    jsonData, err := json.Marshal(registeredTables)
+    if err != nil {
+        return err
+    }
+    err = os.WriteFile(registeredTablesFilePath, jsonData, 0644)
+    if err != nil {
+        return err
+    }
     return nil
 }
 
@@ -87,3 +93,26 @@ func (fs *FileStorage) GetTable(tableName string) (table.RegisteredTable, error)
 	return tb, nil
 }
 
+func (fs *FileStorage) SetTableColsInfo(tableName string, colsInfo []table.ColumnInfo) (error){
+    registeredTables, err := fs.GetRegisteredTables()
+
+    if err != nil {
+        return err
+    }
+
+    t, exists := registeredTables[tableName]
+    if !exists {
+        return fmt.Errorf("table %s not found in registered tables", tableName)
+    }
+	t.Columns = &colsInfo
+    registeredTables[t.Name] = t
+    jsonData, err := json.Marshal(registeredTables)
+    if err != nil {
+        return err
+    }
+    err = os.WriteFile(registeredTablesFilePath, jsonData, 0644)
+    if err != nil {
+        return err
+    }
+    return nil
+}

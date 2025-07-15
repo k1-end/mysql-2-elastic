@@ -3,6 +3,7 @@ package database
 import (
 	"fmt"
 
+	"github.com/k1-end/mysql-2-elastic/internal/table"
 	"github.com/pingcap/tidb/pkg/parser/ast"
 )
 
@@ -22,15 +23,11 @@ func ExtractValue(expr ast.ExprNode) (any, error) {
 }
 
 
-func GetColumnNameFromPosition(tableStructure []map[string]any, position int) (string, error) {
-    for _, col := range tableStructure {
-        if pos, ok := col["position"].(float64); ok {
-            if int(pos) == position {
-                if name, ok := col["name"].(string); ok {
-                    return name, nil
-                }
-            }
-        }
+func GetColumnNameFromPosition(tableCols []table.ColumnInfo, position int) (string, error) {
+    for _, col := range tableCols {
+		if col.Position == position {
+			return col.Name, nil
+		}
     }
     return "", fmt.Errorf("Column Not found")
 }

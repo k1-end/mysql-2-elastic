@@ -119,6 +119,13 @@ func initializeTables(appConfig *config.Config, esClient *elasticsearch.Client, 
 			if err != nil {
 				return fmt.Errorf("set table status %s: %w", table.Name, err)
 			}
+
+			columnsInfo, err:= syncerpack.GetTableColsInfoFromDumpFile(table.Name)
+			if err != nil {
+				return err
+			}
+			tableStorage.SetTableColsInfo(table.Name, columnsInfo)
+
             err = sendDataToElasticFromDumpfile(table, esClient)
 			if err != nil {
 				return fmt.Errorf("set table status %s: %w", table.Name, err)
@@ -156,7 +163,7 @@ func initializeTables(appConfig *config.Config, esClient *elasticsearch.Client, 
 				// Main binlog is newer, so we need to sync the dump file with the main binlog
 				MainLogger.Debug("Main binlog is newer than dump file. Syncing dump file with main binlog...")
 
-				err = SyncTablesTillDestination([]string{table.Name}, mainBinlogPos, tableBinlogPos, esClient, syncer)
+				err = SyncTablesTillDestination([]string{table.Name}, mainBinlogPos, tableBinlogPos, esClient, syncer, tableStorage)
 				if err != nil {
 					return fmt.Errorf("failed to sync table until destination: %w", err)
 				}
@@ -179,7 +186,7 @@ func initializeTables(appConfig *config.Config, esClient *elasticsearch.Client, 
 						synchingTableNames = append(synchingTableNames, name)
 					}
 				}
-				err = SyncTablesTillDestination(synchingTableNames, tableBinlogPos, currentBinlogPos, esClient, syncer)
+				err = SyncTablesTillDestination(synchingTableNames, tableBinlogPos, currentBinlogPos, esClient, syncer, tableStorage)
 				if err != nil {
 					return fmt.Errorf("failed to sync table until destination: %w", err)
 				}
@@ -249,7 +256,7 @@ func runTheSyncer(appConfig *config.Config, esClient *elasticsearch.Client, sync
 			if ev == nil {
 				MainLogger.Error("nil pointer to event")
 			}
-            err = processBinlogEvent(ev, &currentBinlogPos, tableNames, esClient)
+            err = processBinlogEvent(ev, &currentBinlogPos, tableNames, esClient, tableStorage)
 			if err != nil {
 				MainLogger.Error(err.Error())
 			}
@@ -257,12 +264,12 @@ func runTheSyncer(appConfig *config.Config, esClient *elasticsearch.Client, sync
     }
 }
 
-func convertBinlogRowsToArrayOfMaps(rows [][]any, tableStructure []map[string]any) ([]map[string]any, error) {
+func convertBinlogRowsToArrayOfMaps(rows [][]any, tableCols []tablepack.ColumnInfo) ([]map[string]any, error) {
     var values []map[string]any 
     for _, row := range rows {
         var singleRecord = make(map[string]any)
         for j, val := range row {
-            columnName, err := database.GetColumnNameFromPosition(tableStructure, j)
+            columnName, err := database.GetColumnNameFromPosition(tableCols, j)
             if err != nil {
                 return nil, fmt.Errorf("Error getting column name from position %d: %w", j, err)
             }
@@ -273,7 +280,13 @@ func convertBinlogRowsToArrayOfMaps(rows [][]any, tableStructure []map[string]an
 	return values, nil
 }
 
-func SyncTablesTillDestination(tableNames []string, desBinlogPos, currentBinlogPos syncerpack.BinlogPosition, esClient *elasticsearch.Client, syncer *replication.BinlogSyncer) error {
+func SyncTablesTillDestination(
+	tableNames []string,
+	desBinlogPos, currentBinlogPos syncerpack.BinlogPosition,
+	esClient *elasticsearch.Client,
+	syncer *replication.BinlogSyncer,
+	tableStorage storage.TableStorage,
+) error {
 	MainLogger.Debug("Syncing: " + strings.Join(tableNames[:], ","))
 
     // Start sync with specified binlog file and position
@@ -292,7 +305,7 @@ func SyncTablesTillDestination(tableNames []string, desBinlogPos, currentBinlogP
 			MainLogger.Error("nil pointer to event")
 			return err
 		}
-		err = processBinlogEvent(ev, &currentBinlogPos, tableNames, esClient)
+		err = processBinlogEvent(ev, &currentBinlogPos, tableNames, esClient, tableStorage)
 		if err != nil {
 			MainLogger.Error(err.Error())
 			return err
@@ -302,7 +315,7 @@ func SyncTablesTillDestination(tableNames []string, desBinlogPos, currentBinlogP
     return nil
 }
 
-func processBinlogEvent(ev *replication.BinlogEvent, currentBinlogPos *syncerpack.BinlogPosition, tableNames []string, esClient *elasticsearch.Client) error {
+func processBinlogEvent(ev *replication.BinlogEvent, currentBinlogPos *syncerpack.BinlogPosition, tableNames []string, esClient *elasticsearch.Client, tableStorage storage.TableStorage) error {
     currentBinlogPos.Logpos = uint32(ev.Header.LogPos) // Update the current position from the event header
     //print position get from event
     switch e := ev.Event.(type) {
@@ -324,8 +337,12 @@ func processBinlogEvent(ev *replication.BinlogEvent, currentBinlogPos *syncerpac
         switch ev.Header.EventType {
         case replication.WRITE_ROWS_EVENTv1, replication.WRITE_ROWS_EVENTv2:
 			MainLogger.Debug("  ➡️ INSERT:")
-            tableStructure, _ := tablepack.GetTableStructure(syncerpack.GetDumpTableStructureFilePath(eventTableName))
-			records, err := convertBinlogRowsToArrayOfMaps(e.Rows, tableStructure)
+			tb, err := tableStorage.GetTable(eventTableName)
+			if err != nil {
+				MainLogger.Error(err.Error())
+				return err
+			}
+			records, err := convertBinlogRowsToArrayOfMaps(e.Rows, *tb.Columns)
 			if err != nil {
 				MainLogger.Error(err.Error())
 				return err
@@ -340,14 +357,19 @@ func processBinlogEvent(ev *replication.BinlogEvent, currentBinlogPos *syncerpac
 			MainLogger.Debug(string(e.ColumnBitmap2))
             // For UPDATE events, e.Rows contains pairs of [before-image, after-image]
             // The length of e.Rows will be N*2, where N is the number of updated rows.
-            tableStructure, _ := tablepack.GetTableStructure(syncerpack.GetDumpTableStructureFilePath(eventTableName))
             var afterDocs [][]any
             for i := 0; i < len(e.Rows); i += 2 {
                 afterValues := e.Rows[i+1]
                 afterDocs = append(afterDocs, afterValues)
             }
 
-			records, err := convertBinlogRowsToArrayOfMaps(e.Rows, tableStructure)
+			tb, err := tableStorage.GetTable(eventTableName)
+			if err != nil {
+				MainLogger.Error(err.Error())
+				return err
+			}
+
+			records, err := convertBinlogRowsToArrayOfMaps(e.Rows, *tb.Columns)
 			if err != nil {
 				MainLogger.Error(err.Error())
 				return err
@@ -359,8 +381,12 @@ func processBinlogEvent(ev *replication.BinlogEvent, currentBinlogPos *syncerpac
 			}
         case replication.DELETE_ROWS_EVENTv1, replication.DELETE_ROWS_EVENTv2:
 			MainLogger.Debug("  🗑️ DELETE:")
-            tableStructure, _ := tablepack.GetTableStructure(syncerpack.GetDumpTableStructureFilePath(eventTableName))
-			records, err:= convertBinlogRowsToArrayOfMaps(e.Rows, tableStructure)
+			tb, err := tableStorage.GetTable(eventTableName)
+			if err != nil {
+				MainLogger.Error(err.Error())
+				return err
+			}
+			records, err:= convertBinlogRowsToArrayOfMaps(e.Rows, *tb.Columns)
 			if err != nil {
 				MainLogger.Error(err.Error())
 				return err
@@ -388,9 +414,6 @@ func sendDataToElasticFromDumpfile(table tablepack.RegisteredTable, esClient *el
 		return fmt.Errorf("Table status in not *moving*")
     }
 
-    syncerpack.WriteTableStructureFromDumpfile(table.Name)
-	tableStructure, _ := tablepack.GetTableStructure(syncerpack.GetDumpTableStructureFilePath(table.Name))
-
 	currentOffset := syncerpack.ReadLastOffset(progressFile)
 	file, err := os.OpenFile(dumpFilePath, os.O_RDONLY, 0644)
 	if err != nil {
@@ -413,7 +436,7 @@ func sendDataToElasticFromDumpfile(table tablepack.RegisteredTable, esClient *el
 
 		if strings.HasPrefix(line, "INSERT INTO") && strings.HasSuffix(line, ";") {
 
-			err = processInsertString(table.Name, line, tableStructure, esClient)
+			err = processInsertString(table.Name, line, *table.Columns, esClient)
 			if err != nil {
 				return err
 			}
@@ -427,7 +450,7 @@ func sendDataToElasticFromDumpfile(table tablepack.RegisteredTable, esClient *el
 			if strings.HasSuffix(line, ";") {
 				insertStatement := currentStatement.String()
 
-				err = processInsertString(table.Name, insertStatement, tableStructure, esClient)
+				err = processInsertString(table.Name, insertStatement, *table.Columns, esClient)
 				if err != nil {
 					return err
 				}
@@ -455,7 +478,7 @@ func sendDataToElasticFromDumpfile(table tablepack.RegisteredTable, esClient *el
 	return nil
 }
 
-func processInsertString(tableName string, insertStatement string, tableStructure []map[string]any, esClient *elasticsearch.Client) error {
+func processInsertString(tableName string, insertStatement string, tableCols []tablepack.ColumnInfo, esClient *elasticsearch.Client) error {
     p := parser.New()
     // Parse the SQL statement
     // The last two arguments are charset and collation, which can be empty for default.
@@ -481,7 +504,7 @@ func processInsertString(tableName string, insertStatement string, tableStructur
                 MainLogger.Error(fmt.Sprintf("Error extracting value for column %d in row %d: %v\n", j+1, i+1, err))
 				panic(err)
             }
-            columnName, err := database.GetColumnNameFromPosition(tableStructure, j)
+            columnName, err := database.GetColumnNameFromPosition(tableCols, j)
             if err != nil {
                 return fmt.Errorf("Error getting column name from position %d: %w", j, err)
             }

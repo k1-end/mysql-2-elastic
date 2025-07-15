@@ -119,7 +119,14 @@ func initializeTables(appConfig *config.Config, esClient *elasticsearch.Client, 
 			if err != nil {
 				return fmt.Errorf("set table status %s: %w", table.Name, err)
 			}
-            sendDataToElasticFromDumpfile(table, esClient)
+            err = sendDataToElasticFromDumpfile(table, esClient)
+			if err != nil {
+				return fmt.Errorf("set table status %s: %w", table.Name, err)
+			}
+			err = tableStorage.SetTableStatus(table.Name, "moved")
+			if err != nil {
+				return fmt.Errorf("set table status %s: %w", table.Name, err)
+			}
 			table.Status, err = tableStorage.GetTableStatus(table.Name)
 			if err != nil {
 				MainLogger.Error(err.Error())
@@ -445,8 +452,6 @@ func sendDataToElasticFromDumpfile(table tablepack.RegisteredTable, esClient *el
 		// The last successfully written offset to progressFile is your best bet.
 		return err
 	}
-
-    tablepack.SetTableStatus(table.Name, "moved")
 	return nil
 }
 

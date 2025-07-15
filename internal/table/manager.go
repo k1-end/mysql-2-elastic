@@ -22,40 +22,6 @@ type ColumnInfo struct {
     Position int `json:"positions"`
 }
 
-func SetTableStatus(tableName string, status string) error {
-    registeredTables := GetRegisteredTables()
-    table, exists := registeredTables[tableName]
-    if !exists {
-        return fmt.Errorf("table %s not found in registered tables", tableName)
-    }
-    table.Status = status
-    registeredTables[table.Name] = table
-    jsonData, _ := json.Marshal(registeredTables)
-    os.WriteFile(registeredTablesFilePath, jsonData, 0644)
-    return nil
-}
-
-func GetRegisteredTables() map[string]RegisteredTable {
-	file, err := os.Open(registeredTablesFilePath)
-	if err != nil {
-		panic(err)
-	}
-	defer file.Close()
-
-	byteValue, err := io.ReadAll(file)
-	if err != nil {
-		panic(err)
-	}
-
-	var tables map[string]RegisteredTable
-	err = json.Unmarshal(byteValue, &tables)
-	if err != nil {
-		panic(err)
-	}
-
-	return tables
-}
-
 func GetTableStructure(structurePath string) ([]map[string]any, error) {
     jsonFile, err := os.Open(structurePath)
     defer jsonFile.Close()
@@ -75,9 +41,4 @@ func GetTableStructure(structurePath string) ([]map[string]any, error) {
     }
     return result, nil
 
-}
-
-func TableExists(tableName string) bool {
-    _, exists := GetRegisteredTables()[tableName]
-    return exists
 }

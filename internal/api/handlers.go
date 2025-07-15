@@ -6,7 +6,7 @@ import (
 	"io"
 	"net/http"
 
-	tablepack "github.com/k1-end/mysql-2-elastic/internal/table"
+	"github.com/k1-end/mysql-2-elastic/internal/storage/filesystem"
 	"github.com/k1-end/mysql-2-elastic/internal/util"
 )
 
@@ -41,13 +41,20 @@ func addTable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	sto, err := filesystem.NewFileStorage()
+	if err != nil {
+		http.Error(w, "Server Error", http.StatusInternalServerError)
+		return
+	}
+
 	tableName := r.URL.Query().Get("table_name")
-	if tablepack.TableExists(tableName) {
+	tb, err := sto.GetTable(tableName)
+	if err == nil {
 		http.Error(w, "Table already exists", http.StatusConflict)
 		return
 	}
 
-	err := pushNewTable(tableName)
+	err = pushNewTable(tb.Name)
 	if err != nil {
 		http.Error(w, "There was an error pushing the new table: "+err.Error(), http.StatusServiceUnavailable)
 		return
@@ -65,8 +72,16 @@ func dumpTable(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tableName := r.URL.Query().Get("table_name")
-	if !tablepack.TableExists(tableName) {
-		http.Error(w, "Table does not exists", http.StatusConflict)
+
+	sto, err := filesystem.NewFileStorage()
+	if err != nil {
+		http.Error(w, "Server Error", http.StatusInternalServerError)
+		return
+	}
+	
+	_, err = sto.GetTable(tableName)
+	if err != nil {
+		http.Error(w, "Server Error", http.StatusInternalServerError)
 		return
 	}
 
@@ -83,18 +98,18 @@ func getTable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tableName := r.URL.Query().Get("table_name")
-	if !tablepack.TableExists(tableName) {
-		http.Error(w, "Table does not exists", http.StatusConflict)
+	sto, err := filesystem.NewFileStorage()
+	if err != nil {
+		http.Error(w, "Server Error", http.StatusInternalServerError)
 		return
 	}
-	// return table info
-	registeredTables := tablepack.GetRegisteredTables()
-	table, exists := registeredTables[tableName]
-	if !exists {
-		http.Error(w, "Table does not exists", http.StatusConflict)
+
+	tb, err := sto.GetTable(tableName)
+	if err != nil {
+		http.Error(w, "Server Error", http.StatusInternalServerError)
 		return
 	}
-	jsonData, _ := json.Marshal(table)
+	jsonData, _ := json.Marshal(tb)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	w.Write(jsonData)
@@ -102,7 +117,16 @@ func getTable(w http.ResponseWriter, r *http.Request) {
 }
 
 func getAllTable(w http.ResponseWriter, r *http.Request) {
-	registeredTables := tablepack.GetRegisteredTables()
+	sto, err := filesystem.NewFileStorage()
+	if err != nil {
+		http.Error(w, "Server Error", http.StatusInternalServerError)
+		return
+	}
+	registeredTables, err := sto.GetRegisteredTables()
+	if err != nil {
+		http.Error(w, "Server Error", http.StatusInternalServerError)
+		return
+	}
 	jsonData, _ := json.Marshal(registeredTables)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)

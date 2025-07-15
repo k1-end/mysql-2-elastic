@@ -1,0 +1,89 @@
+package filesystem
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"os"
+
+	"github.com/k1-end/mysql-2-elastic/internal/table"
+)
+
+const (
+    registeredTablesFilePath = "data/registered-tables.json"
+)
+
+type FileStorage struct {}
+
+// Creates a new FileStorage instance.
+func NewFileStorage() (*FileStorage, error) {
+    return &FileStorage{}, nil
+}
+
+func (fs *FileStorage) GetRegisteredTables() (map[string]table.RegisteredTable, error)  {
+	
+	file, err := os.Open(registeredTablesFilePath)
+	if err != nil {
+		panic(err)
+	}
+	defer file.Close()
+
+	byteValue, err := io.ReadAll(file)
+	if err != nil {
+		panic(err)
+	}
+
+	var tables map[string]table.RegisteredTable
+	err = json.Unmarshal(byteValue, &tables)
+	if err != nil {
+		panic(err)
+	}
+
+	return tables, nil
+}
+
+
+func (fs *FileStorage) GetTableStatus(tableName string) (string, error)  {
+	
+	table, err := fs.GetTable(tableName)
+	if err != nil {
+		return "", err
+	}
+	status := table.Status
+	return status, nil
+}
+
+func (fs *FileStorage) SetTableStatus(tableName string, status string) (error)  {
+	
+    registeredTables, err := fs.GetRegisteredTables()
+
+    if err != nil {
+        return err
+    }
+
+    t, exists := registeredTables[tableName]
+    if !exists {
+        return fmt.Errorf("table %s not found in registered tables", tableName)
+    }
+    t.Status = status
+    registeredTables[t.Name] = t
+    jsonData, _ := json.Marshal(registeredTables)
+    os.WriteFile(registeredTablesFilePath, jsonData, 0644)
+    return nil
+}
+
+
+func (fs *FileStorage) GetTable(tableName string) (table.RegisteredTable, error)  {
+	tbs, err := fs.GetRegisteredTables()
+	if err != nil {
+		return table.RegisteredTable{}, err
+	}
+
+	tb, ok := tbs[tableName]
+	if  !ok {
+		return table.RegisteredTable{}, fmt.Errorf("tableName not found: " + tableName)
+	}
+
+	return tb, nil
+}
+

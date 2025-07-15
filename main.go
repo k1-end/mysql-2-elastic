@@ -23,6 +23,8 @@ import (
 	"github.com/k1-end/mysql-2-elastic/internal/database"
 	elasticpack "github.com/k1-end/mysql-2-elastic/internal/elastic"
 	"github.com/k1-end/mysql-2-elastic/internal/logger"
+	"github.com/k1-end/mysql-2-elastic/internal/storage"
+	"github.com/k1-end/mysql-2-elastic/internal/storage/filesystem"
 	syncerpack "github.com/k1-end/mysql-2-elastic/internal/syncer"
 	tablepack "github.com/k1-end/mysql-2-elastic/internal/table"
 )
@@ -56,19 +58,28 @@ func main() {
 		panic(err)
     }
 
-	err = initializeTables(appConfig, esClient, syncer)
+	fs, err := filesystem.NewFileStorage()
+	if err != nil {
+		MainLogger.Error(err.Error())
+		os.Exit(1)
+	}
+	err = initializeTables(appConfig, esClient, syncer, fs)
 	if err != nil {
 		MainLogger.Error(err.Error())
 	}
 
-    go runTheSyncer(appConfig, esClient, syncer)
+    go runTheSyncer(appConfig, esClient, syncer, fs)
 
 	api.Serve(MainLogger)
 }
 
-func initializeTables(appConfig *config.Config, esClient *elasticsearch.Client, syncer *replication.BinlogSyncer) error{
+func initializeTables(appConfig *config.Config, esClient *elasticsearch.Client, syncer *replication.BinlogSyncer, tableStorage storage.TableStorage) error{
     
-    registeredTables := tablepack.GetRegisteredTables()
+    registeredTables, err := tableStorage.GetRegisteredTables()
+	if err != nil {
+		MainLogger.Error(err.Error())
+		os.Exit(1)
+	}
     // Is there any registered tables?
 	if len(registeredTables) == 0 {
 		return errors.New("No registered tables.\n--- End ---")
@@ -89,13 +100,25 @@ func initializeTables(appConfig *config.Config, esClient *elasticsearch.Client, 
 				MainLogger.Error(fmt.Sprintf("Fatal error InitialDump: %v", err))
 				panic(err)
 			}
-			table.Status = tablepack.GetRegisteredTables()[table.Name].Status
+			table.Status, err = tableStorage.GetTableStatus(table.Name)
+			if err != nil {
+				MainLogger.Error(err.Error())
+				os.Exit(1)
+			}
 		}
 
 		if table.Status == "dumped" || table.Status == "moving" {
 			MainLogger.Debug(table.Name + ": " + table.Status)
-            sendDataToElasticFromDumpfile(table.Name, esClient)
-			table.Status = tablepack.GetRegisteredTables()[table.Name].Status
+			err = tableStorage.SetTableStatus(table.Name, "moving")
+			if err != nil {
+				return fmt.Errorf("set table status %s: %w", table.Name, err)
+			}
+            sendDataToElasticFromDumpfile(table, esClient)
+			table.Status, err = tableStorage.GetTableStatus(table.Name)
+			if err != nil {
+				MainLogger.Error(err.Error())
+				os.Exit(1)
+			}
 		}
 
 		if table.Status == "moved" {
@@ -149,12 +172,16 @@ func initializeTables(appConfig *config.Config, esClient *elasticsearch.Client, 
 				}
 			}
 			MainLogger.Debug("Sync completed for table:" + table.Name)
-			err = tablepack.SetTableStatus(table.Name, "syncing")
+			err = tableStorage.SetTableStatus(table.Name, "syncing")
 			if err != nil {
 				return fmt.Errorf("set table status %s: %w", table.Name, err)
 			}
 
-			table.Status = tablepack.GetRegisteredTables()[table.Name].Status
+			table.Status, err = tableStorage.GetTableStatus(table.Name)
+			if err != nil {
+				MainLogger.Error(err.Error())
+				os.Exit(1)
+			}
 		}
     }
 	MainLogger.Info("Finished Processing table")
@@ -162,8 +189,12 @@ func initializeTables(appConfig *config.Config, esClient *elasticsearch.Client, 
 }
 
 
-func runTheSyncer(appConfig *config.Config, esClient *elasticsearch.Client, syncer *replication.BinlogSyncer) {
-    registeredTables := tablepack.GetRegisteredTables()
+func runTheSyncer(appConfig *config.Config, esClient *elasticsearch.Client, syncer *replication.BinlogSyncer, tableStorage storage.TableStorage) {
+    registeredTables, err := tableStorage.GetRegisteredTables()
+	if err != nil {
+		MainLogger.Error(err.Error())
+		os.Exit(1)
+	}
     var tableNames []string
     for name, table := range registeredTables {
         if table.Status == "syncing" {
@@ -194,7 +225,7 @@ func runTheSyncer(appConfig *config.Config, esClient *elasticsearch.Client, sync
         case <-DoneChannel:
             return
         case <-RestartChannel:
-            initializeTables(appConfig, esClient, syncer)
+            initializeTables(appConfig, esClient, syncer, tableStorage)
         default:
 
 			ev, err := streamer.GetEvent(context.Background())
@@ -335,18 +366,17 @@ func processBinlogEvent(ev *replication.BinlogEvent, currentBinlogPos *syncerpac
     return nil
 }
 
-func sendDataToElasticFromDumpfile(tableName string, esClient *elasticsearch.Client) error {
-	dumpFilePath := syncerpack.GetDumpFilePath(tableName)
-	progressFile := syncerpack.GetDumpReadProgressFilePath(tableName)
+func sendDataToElasticFromDumpfile(table tablepack.RegisteredTable, esClient *elasticsearch.Client) error {
+	dumpFilePath := syncerpack.GetDumpFilePath(table.Name)
+	progressFile := syncerpack.GetDumpReadProgressFilePath(table.Name)
 
 
-    table := tablepack.GetRegisteredTables()[tableName]
     if table.Status != "moving" {
-       tablepack.SetTableStatus(tableName, "moving")
+		return fmt.Errorf("Table status in not *moving*")
     }
 
-    syncerpack.WriteTableStructureFromDumpfile(tableName)
-	tableStructure, _ := tablepack.GetTableStructure(syncerpack.GetDumpTableStructureFilePath(tableName))
+    syncerpack.WriteTableStructureFromDumpfile(table.Name)
+	tableStructure, _ := tablepack.GetTableStructure(syncerpack.GetDumpTableStructureFilePath(table.Name))
 
 	currentOffset := syncerpack.ReadLastOffset(progressFile)
 	file, err := os.OpenFile(dumpFilePath, os.O_RDONLY, 0644)
@@ -370,7 +400,7 @@ func sendDataToElasticFromDumpfile(tableName string, esClient *elasticsearch.Cli
 
 		if strings.HasPrefix(line, "INSERT INTO") && strings.HasSuffix(line, ";") {
 
-			err = processInsertString(tableName, line, tableStructure, esClient)
+			err = processInsertString(table.Name, line, tableStructure, esClient)
 			if err != nil {
 				return err
 			}
@@ -384,7 +414,7 @@ func sendDataToElasticFromDumpfile(tableName string, esClient *elasticsearch.Cli
 			if strings.HasSuffix(line, ";") {
 				insertStatement := currentStatement.String()
 
-				err = processInsertString(tableName, insertStatement, tableStructure, esClient)
+				err = processInsertString(table.Name, insertStatement, tableStructure, esClient)
 				if err != nil {
 					return err
 				}
@@ -410,7 +440,7 @@ func sendDataToElasticFromDumpfile(tableName string, esClient *elasticsearch.Cli
 		return err
 	}
 
-    tablepack.SetTableStatus(tableName, "moved")
+    tablepack.SetTableStatus(table.Name, "moved")
 	return nil
 }
 

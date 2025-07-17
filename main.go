@@ -423,18 +423,13 @@ func sendDataToElasticFromDumpfile(table tablepack.RegisteredTable, esClient *el
 		return fmt.Errorf("Table status in not *moving*")
     }
 
-	currentOffset, err := tableStorage.GetDumpReadProgress(table.Name)
-	if err != nil {
-		return err
-	}
-
 	file, err := os.OpenFile(dumpFilePath, os.O_RDONLY, 0644)
 	if err != nil {
 		return fmt.Errorf("failed to open dump file: %w", err)
 	}
 	defer file.Close()
 
-	_, err = file.Seek(int64(currentOffset), io.SeekStart)
+	_, err = file.Seek(int64(*table.DumpReadProgress), io.SeekStart)
 	if err != nil {
 		return fmt.Errorf("Failed to seek in dump file: %w", err)
 	}
@@ -472,10 +467,10 @@ func sendDataToElasticFromDumpfile(table tablepack.RegisteredTable, esClient *el
 			}
 		}
 
-		currentOffset += len(scanner.Bytes()) + 2 // +1 for the newline character consumed by scanner
+		*table.DumpReadProgress += len(scanner.Bytes()) + 2 // +1 for the newline character consumed by scanner
 		if !inInsertStatement {
 			// err = syncerpack.WriteCurrentOffset(progressFile, currentOffset)
-			err = tableStorage.SetDumpReadProgress(table.Name, currentOffset)
+			err = tableStorage.SetDumpReadProgress(table.Name, *table.DumpReadProgress)
 			if err != nil {
 				return err
 			}

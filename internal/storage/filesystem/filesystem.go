@@ -118,13 +118,28 @@ func (fs *FileStorage) SetTableColsInfo(tableName string, colsInfo []table.Colum
     return nil
 }
 
-func (fs *FileStorage) GetDumpReadProgress(tableName string) (int, error){
-   return "data/dumps/" + tableName + "/" + "read_progress.txt", nil
-	return 0, nil
-}
-
 func (fs *FileStorage) SetDumpReadProgress(tableName string, progress int) (error){
-	return nil
+    registeredTables, err := fs.GetRegisteredTables()
+
+    if err != nil {
+        return err
+    }
+
+    t, exists := registeredTables[tableName]
+    if !exists {
+        return fmt.Errorf("table %s not found in registered tables", tableName)
+    }
+	t.DumpReadProgress = &progress
+    registeredTables[t.Name] = t
+    jsonData, err := json.Marshal(registeredTables)
+    if err != nil {
+        return err
+    }
+    err = os.WriteFile(registeredTablesFilePath, jsonData, 0644)
+    if err != nil {
+        return err
+    }
+    return nil
 }
 
 func (fs *FileStorage) GetDumpFilePath(tableName string) (string, error) {

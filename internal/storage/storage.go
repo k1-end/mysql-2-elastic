@@ -9,7 +9,6 @@ type TableStorage interface {
 	GetRegisteredTables() (map[string]table.RegisteredTable, error)
 	GetTableStatus(tableName string) (string, error)
 	GetTable(tableName string) (table.RegisteredTable, error)
-	GetDumpReadProgress(tableName string) (int, error)
 	GetDumpFilePath(tableName string) (string, error)
 	SetDumpReadProgress(tableName string, progress int) (error)
 	SetTableStatus(tableName string, status string) (error)

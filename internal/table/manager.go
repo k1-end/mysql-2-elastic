@@ -12,6 +12,7 @@ type RegisteredTable struct {
     Status string `json:"status"`
 	Columns *[]ColumnInfo `json:"columns"`
 	BinlogPos *syncer.BinlogPosition `json:"binlog_pos"`
+	DumpReadProgress *int `json:"dump_read_progress"`
 }
 
 type ColumnInfo struct {

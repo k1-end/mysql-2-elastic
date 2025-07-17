@@ -1,5 +1,6 @@
 package table
 
+
 const (
     registeredTablesFilePath = "data/registered-tables.json"
 )

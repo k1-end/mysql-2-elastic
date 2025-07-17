@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -120,13 +121,18 @@ func initializeTables(appConfig *config.Config, esClient *elasticsearch.Client, 
 				return fmt.Errorf("set table status %s: %w", table.Name, err)
 			}
 
-			columnsInfo, err:= syncerpack.GetTableColsInfoFromDumpFile(table.Name)
+			dumpFilePath, err := tableStorage.GetDumpFilePath(table.Name)
+			if err != nil {
+				return fmt.Errorf("set table status %s: %w", table.Name, err)
+			}
+			columnsInfo, err:= syncerpack.GetTableColsInfoFromDumpFile(dumpFilePath)
 			if err != nil {
 				return err
 			}
+				
 			tableStorage.SetTableColsInfo(table.Name, columnsInfo)
 
-            err = sendDataToElasticFromDumpfile(table, esClient)
+            err = sendDataToElasticFromDumpfile(table, esClient, tableStorage)
 			if err != nil {
 				return fmt.Errorf("set table status %s: %w", table.Name, err)
 			}
@@ -143,11 +149,29 @@ func initializeTables(appConfig *config.Config, esClient *elasticsearch.Client, 
 
 		if table.Status == "moved" {
 			MainLogger.Debug("Syncing with the main loop for table: " + table.Name)
-			tableBinlogPos, err := syncerpack.GetBinlogCoordinatesFromDumpfile(syncerpack.GetDumpFilePath(table.Name))
+			dumpFilePath, err := tableStorage.GetDumpFilePath(table.Name)
+			if err != nil {
+				return err
+			}
+			tableBinlogPos, err := syncerpack.GetBinlogCoordinatesFromDumpfile(dumpFilePath)
 			if err != nil {
 				return fmt.Errorf("failed to parse binlog coordinates from dump file: %w", err)
 			}
-			err = syncerpack.WriteDumpfilePosition(table.Name) // for safety
+			// err = syncerpack.WriteDumpfilePosition(table.Name) // for safety
+
+			binlogPos, err := syncerpack.GetBinlogCoordinatesFromDumpfile(dumpFilePath)
+			// write the above info to a json file
+			if err != nil {
+				return fmt.Errorf("failed to parse binlog coordinates from dump: %w", err)
+			}
+			jsonData, err := json.Marshal(map[string]any{
+				"logfile": binlogPos.Logfile,
+				"logpos":  binlogPos.Logpos,
+			})
+			if err != nil {
+				return fmt.Errorf("failed to marshal binlog coordinates: %w", err)
+			}
+			err = os.WriteFile(syncerpack.GetTableBinlogPositionFilePath(table.Name), jsonData, 0644)
 			if err != nil {
 				return fmt.Errorf("failed to write dump file position: %w", err)
 			}
@@ -405,23 +429,28 @@ func processBinlogEvent(ev *replication.BinlogEvent, currentBinlogPos *syncerpac
     return nil
 }
 
-func sendDataToElasticFromDumpfile(table tablepack.RegisteredTable, esClient *elasticsearch.Client) error {
-	dumpFilePath := syncerpack.GetDumpFilePath(table.Name)
-	progressFile := syncerpack.GetDumpReadProgressFilePath(table.Name)
-
+func sendDataToElasticFromDumpfile(table tablepack.RegisteredTable, esClient *elasticsearch.Client, tableStorage storage.TableStorage) error {
+	dumpFilePath, err := tableStorage.GetDumpFilePath(table.Name)
+	if err != nil {
+		return err
+	}
 
     if table.Status != "moving" {
 		return fmt.Errorf("Table status in not *moving*")
     }
 
-	currentOffset := syncerpack.ReadLastOffset(progressFile)
+	currentOffset, err := tableStorage.GetDumpReadProgress(table.Name)
+	if err != nil {
+		return err
+	}
+
 	file, err := os.OpenFile(dumpFilePath, os.O_RDONLY, 0644)
 	if err != nil {
 		return fmt.Errorf("failed to open dump file: %w", err)
 	}
 	defer file.Close()
 
-	_, err = file.Seek(currentOffset, io.SeekStart)
+	_, err = file.Seek(int64(currentOffset), io.SeekStart)
 	if err != nil {
 		return fmt.Errorf("Failed to seek in dump file: %w", err)
 	}
@@ -459,9 +488,10 @@ func sendDataToElasticFromDumpfile(table tablepack.RegisteredTable, esClient *el
 			}
 		}
 
-		currentOffset += int64(len(scanner.Bytes())) + 2 // +1 for the newline character consumed by scanner
+		currentOffset += len(scanner.Bytes()) + 2 // +1 for the newline character consumed by scanner
 		if !inInsertStatement {
-			err = syncerpack.WriteCurrentOffset(progressFile, currentOffset)
+			// err = syncerpack.WriteCurrentOffset(progressFile, currentOffset)
+			err = tableStorage.SetDumpReadProgress(table.Name, currentOffset)
 			if err != nil {
 				return err
 			}

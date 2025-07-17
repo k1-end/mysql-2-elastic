@@ -29,8 +29,8 @@ type columnData struct {
     Position int `json:"position"`
 }
 
-func GetTableColsInfoFromDumpFile(tn string) ([]table.ColumnInfo, error) {
-	createStatementStr, err := getCreateTableStatementFromDumpFileAsString(GetDumpFilePath(tn))
+func GetTableColsInfoFromDumpFile(dumpFilePath string) ([]table.ColumnInfo, error) {
+	createStatementStr, err := getCreateTableStatementFromDumpFileAsString(dumpFilePath)
 	if err != nil {
 		return nil, err
 	}
@@ -211,7 +211,11 @@ func InitialDump(tableName string, appConfig *config.Config, logger *slog.Logger
 
     util.CreateDirectoryIfNotExists("data/dumps")
     util.CreateDirectoryIfNotExists("data/dumps/" + tableName)
-    outputFile := GetDumpFilePath(tableName)
+    outputFile, err := tableStorage.GetDumpFilePath(tableName)
+	if err != nil {
+		return fmt.Errorf("failed to create output file: %w", err)
+	}
+
     outfile, err := os.Create(outputFile)
 	if err != nil {
 		return fmt.Errorf("failed to create output file: %w", err)

@@ -116,3 +116,15 @@ func (fs *FileStorage) SetTableColsInfo(tableName string, colsInfo []table.Colum
     }
     return nil
 }
+
+func (fs *FileStorage) GetDumpReadProgress(tableName string) (int, error){
+	return 0, nil
+}
+
+func (fs *FileStorage) SetDumpReadProgress(tableName string, progress int) (error){
+	return nil
+}
+
+func (fs *FileStorage) GetDumpFilePath(tableName string) (string, error) {
+	return "", nil
+}

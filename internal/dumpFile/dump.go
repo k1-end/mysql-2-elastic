@@ -146,15 +146,6 @@ func GetBinlogCoordinatesFromDumpfile(dumpFilePath string) (syncer.BinlogPositio
 	return syncer.BinlogPosition{}, fmt.Errorf("binlog coordinates not found in dump file " + dumpFilePath)
 }
 
-func GetDumpReadProgressFilePath(tableName string) (string) {
-   return "data/dumps/" + tableName + "/" + "read_progress.txt"
-}
-
-
-func GetDumpFilePath(tableName string) (string) {
-   return "data/dumps/" + tableName + "/" + tableName + ".sql"
-}
-
 func InitialDump(tableName string, appConfig *config.Config, logger *slog.Logger, tableStorage storage.TableStorage) error{
 	table, err := tableStorage.GetTable(tableName)
     if err != nil {
@@ -235,21 +226,18 @@ func InitialDump(tableName string, appConfig *config.Config, logger *slog.Logger
     return nil
 }
 
-func ClearIncompleteDumpedData(tableName string) error{
-    util.CreateDirectoryIfNotExists("data/dumps")
-    util.CreateDirectoryIfNotExists("data/dumps/" + tableName)
-    // clear every file and directory in the above directory
-    files, err := os.ReadDir("data/dumps/" + tableName)
-    if err != nil {
-        return fmt.Errorf("failed to read dump directory: %w", err)
-    }
-    for _, file := range files {
-        filePath := "data/dumps/" + tableName + "/" + file.Name()
-        err = os.RemoveAll(filePath)
-        if err != nil {
-            return fmt.Errorf("failed to remove file %s: %w", filePath, err)
-        }
-    }
+func ClearIncompleteDumpedData(dumpFilePath string) error{
+	_, err := os.Stat(dumpFilePath)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("failed to remove file %s: %w", dumpFilePath, err)
+	}
+	err = os.RemoveAll(dumpFilePath)
+	if err != nil {
+		return fmt.Errorf("failed to remove file %s: %w", dumpFilePath, err)
+	}
     return nil
 }
 

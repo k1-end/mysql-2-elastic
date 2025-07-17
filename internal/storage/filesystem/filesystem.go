@@ -119,6 +119,7 @@ func (fs *FileStorage) SetTableColsInfo(tableName string, colsInfo []table.Colum
 }
 
 func (fs *FileStorage) GetDumpReadProgress(tableName string) (int, error){
+   return "data/dumps/" + tableName + "/" + "read_progress.txt", nil
 	return 0, nil
 }
 
@@ -127,9 +128,29 @@ func (fs *FileStorage) SetDumpReadProgress(tableName string, progress int) (erro
 }
 
 func (fs *FileStorage) GetDumpFilePath(tableName string) (string, error) {
-	return "", nil
+   return "data/dumps/" + tableName + "/" + tableName + ".sql", nil
 }
 
 func (fs *FileStorage) SetTableBinlogPos(tableName string, binlogPos syncer.BinlogPosition) (error) {
-	return nil
+    registeredTables, err := fs.GetRegisteredTables()
+
+    if err != nil {
+        return err
+    }
+
+    t, exists := registeredTables[tableName]
+    if !exists {
+        return fmt.Errorf("table %s not found in registered tables", tableName)
+    }
+	t.BinlogPos = &binlogPos
+    registeredTables[t.Name] = t
+    jsonData, err := json.Marshal(registeredTables)
+    if err != nil {
+        return err
+    }
+    err = os.WriteFile(registeredTablesFilePath, jsonData, 0644)
+    if err != nil {
+        return err
+    }
+    return nil
 }

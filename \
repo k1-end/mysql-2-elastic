@@ -103,7 +103,7 @@ func initializeTables(appConfig *config.Config, esClient *elasticsearch.Client, 
 				return fmt.Errorf("set table status %s: %w", table.Name, err)
 			}
 
-            err = dumpfile.InitialDump(table.Name, appConfig, MainLogger, tableStorage)
+            err = syncerpack.InitialDump(table.Name, appConfig, MainLogger, tableStorage)
 			if err != nil {
 				MainLogger.Error(fmt.Sprintf("Fatal error InitialDump: %v", err))
 				panic(err)
@@ -126,7 +126,7 @@ func initializeTables(appConfig *config.Config, esClient *elasticsearch.Client, 
 			if err != nil {
 				return fmt.Errorf("set table status %s: %w", table.Name, err)
 			}
-			columnsInfo, err:= dumpfile.GetTableColsInfoFromDumpFile(dumpFilePath)
+			columnsInfo, err:= syncerpack.GetTableColsInfoFromDumpFile(dumpFilePath)
 			if err != nil {
 				return err
 			}
@@ -154,13 +154,13 @@ func initializeTables(appConfig *config.Config, esClient *elasticsearch.Client, 
 			if err != nil {
 				return err
 			}
-			tableBinlogPos, err := dumpfile.GetBinlogCoordinatesFromDumpfile(dumpFilePath)
+			tableBinlogPos, err := syncerpack.GetBinlogCoordinatesFromDumpfile(dumpFilePath)
 			if err != nil {
 				return fmt.Errorf("failed to parse binlog coordinates from dump file: %w", err)
 			}
 			// err = syncerpack.WriteDumpfilePosition(table.Name) // for safety
 
-			binlogPos, err := dumpfile.GetBinlogCoordinatesFromDumpfile(dumpFilePath)
+			binlogPos, err := syncerpack.GetBinlogCoordinatesFromDumpfile(dumpFilePath)
 			// write the above info to a json file
 			if err != nil {
 				return fmt.Errorf("failed to parse binlog coordinates from dump: %w", err)

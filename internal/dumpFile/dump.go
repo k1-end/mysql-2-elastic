@@ -1,4 +1,4 @@
-package syncer
+package dumpfile
 
 import (
 	"bufio"
@@ -17,6 +17,7 @@ import (
 	"github.com/k1-end/mysql-2-elastic/internal/config"
 	"github.com/k1-end/mysql-2-elastic/internal/storage"
 	"github.com/k1-end/mysql-2-elastic/internal/table"
+	"github.com/k1-end/mysql-2-elastic/internal/syncer"
 	"github.com/k1-end/mysql-2-elastic/internal/util"
 	"github.com/pingcap/tidb/pkg/parser"
 	"github.com/pingcap/tidb/pkg/parser/ast"
@@ -111,10 +112,10 @@ func getCreateTableStatementFromDumpFileAsString(dumpFilePath string) (string, e
 	return "", fmt.Errorf("CREATE TABLE statement not found in dump file")
 }
 
-func GetBinlogCoordinatesFromDumpfile(dumpFilePath string) (BinlogPosition, error) {
+func GetBinlogCoordinatesFromDumpfile(dumpFilePath string) (syncer.BinlogPosition, error) {
 	file, err := os.Open(dumpFilePath)
 	if err != nil {
-		return BinlogPosition{}, fmt.Errorf("failed to open dump file for parsing: %w", err)
+		return syncer.BinlogPosition{}, fmt.Errorf("failed to open dump file for parsing: %w", err)
 	}
 	defer file.Close()
 
@@ -130,20 +131,20 @@ func GetBinlogCoordinatesFromDumpfile(dumpFilePath string) (BinlogPosition, erro
 			if err == io.EOF {
 				break
 			}
-			return BinlogPosition{}, fmt.Errorf("error reading dump file: %w", err)
+			return syncer.BinlogPosition{}, fmt.Errorf("error reading dump file: %w", err)
 		}
 		if matches := re.FindStringSubmatch(line); len(matches) == 3 {
 			logFile = matches[1]
 			pos, err := strconv.ParseUint(matches[2], 10, 32)
 			if err != nil {
-				return BinlogPosition{}, fmt.Errorf("failed to parse binlog position: %w", err)
+				return syncer.BinlogPosition{}, fmt.Errorf("failed to parse binlog position: %w", err)
 			}
 			logPos = uint32(pos)
-			return BinlogPosition{Logfile: logFile, Logpos: logPos}, nil
+			return syncer.BinlogPosition{Logfile: logFile, Logpos: logPos}, nil
 		}
 	}
 
-	return BinlogPosition{}, fmt.Errorf("binlog coordinates not found in dump file " + dumpFilePath)
+	return syncer.BinlogPosition{}, fmt.Errorf("binlog coordinates not found in dump file " + dumpFilePath)
 }
 
 func WriteDumpfilePosition(tableName string) error {
@@ -160,7 +161,7 @@ func WriteDumpfilePosition(tableName string) error {
     if err != nil {
         return fmt.Errorf("failed to marshal binlog coordinates: %w", err)
     }
-    err = os.WriteFile(GetTableBinlogPositionFilePath(tableName), jsonData, 0644)
+    err = os.WriteFile(syncer.GetTableBinlogPositionFilePath(tableName), jsonData, 0644)
     return nil
 }
 

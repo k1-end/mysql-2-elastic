@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -145,24 +144,6 @@ func GetBinlogCoordinatesFromDumpfile(dumpFilePath string) (syncer.BinlogPositio
 	}
 
 	return syncer.BinlogPosition{}, fmt.Errorf("binlog coordinates not found in dump file " + dumpFilePath)
-}
-
-func WriteDumpfilePosition(tableName string) error {
-
-    binlogPos, err := GetBinlogCoordinatesFromDumpfile(GetDumpFilePath(tableName))
-    // write the above info to a json file
-    if err != nil {
-        return fmt.Errorf("failed to parse binlog coordinates from dump: %w", err)
-    }
-    jsonData, err := json.Marshal(map[string]any{
-        "logfile": binlogPos.Logfile,
-        "logpos":  binlogPos.Logpos,
-    })
-    if err != nil {
-        return fmt.Errorf("failed to marshal binlog coordinates: %w", err)
-    }
-    err = os.WriteFile(syncer.GetTableBinlogPositionFilePath(tableName), jsonData, 0644)
-    return nil
 }
 
 func GetDumpReadProgressFilePath(tableName string) (string) {

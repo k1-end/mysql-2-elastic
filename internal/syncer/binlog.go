@@ -17,15 +17,11 @@ type BinlogPosition struct {
 	Logpos  uint32  `json:"logpos"`
 }
 
-func GetMainBinlogPositionFilePath() (string) {
+func getMainBinlogPositionFilePath() (string) {
    return "data/main-binlog-position.json" 
 }
 
-func GetTableBinlogPositionFilePath(tableName string) (string) {
-   return "data/dumps/" + tableName + "/" + tableName + "-dump-binlog-position.json" 
-}
-
-func ParseBinlogCoordinatesFile(filePath string) (BinlogPosition, error) {
+func parseBinlogCoordinatesFile(filePath string) (BinlogPosition, error) {
 	data, err := os.ReadFile(filePath)
 
 	// Check for read errors (excluding file not exists for emptiness check)
@@ -47,13 +43,8 @@ func ParseBinlogCoordinatesFile(filePath string) (BinlogPosition, error) {
 }
 
 func GetStoredBinlogCoordinates(tableName string) (BinlogPosition, error) {
-    var filePath string
-    if tableName == "main" {
-        filePath = GetMainBinlogPositionFilePath()
-    }else{
-        filePath = GetTableBinlogPositionFilePath(tableName)
-    }
-    return ParseBinlogCoordinatesFile(filePath)
+	filePath := getMainBinlogPositionFilePath()
+    return parseBinlogCoordinatesFile(filePath)
 }
 
 func WriteBinlogPosition(binlogPos BinlogPosition, tableName string) error {
@@ -65,12 +56,7 @@ func WriteBinlogPosition(binlogPos BinlogPosition, tableName string) error {
         return fmt.Errorf("failed to marshal binlog coordinates: %w", err)
     }
 
-    var filePath string
-    if tableName == "main" {
-        filePath = GetMainBinlogPositionFilePath()
-    } else {
-        filePath = GetTableBinlogPositionFilePath(tableName)
-    }
+	filePath := getMainBinlogPositionFilePath()
     err = os.WriteFile(filePath, jsonData, 0644)
     if err != nil {
         return fmt.Errorf("failed to write binlog coordinates to file: %w", err)

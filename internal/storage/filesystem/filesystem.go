@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/k1-end/mysql-2-elastic/internal/syncer"
 	"github.com/k1-end/mysql-2-elastic/internal/table"
 )
 
@@ -127,4 +128,8 @@ func (fs *FileStorage) SetDumpReadProgress(tableName string, progress int) (erro
 
 func (fs *FileStorage) GetDumpFilePath(tableName string) (string, error) {
 	return "", nil
+}
+
+func (fs *FileStorage) SetTableBinlogPos(tableName string, binlogPos syncer.BinlogPosition) (error) {
+	return nil
 }

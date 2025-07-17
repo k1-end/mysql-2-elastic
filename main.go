@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -90,6 +89,10 @@ func initializeTables(appConfig *config.Config, esClient *elasticsearch.Client, 
 	MainLogger.Info("Processing table")
 
     for _, table := range registeredTables {
+		dumpFilePath, err := tableStorage.GetDumpFilePath(table.Name)
+		if err != nil {
+			return fmt.Errorf("set table status %s: %w", table.Name, err)
+		}
 		if table.Status == "created" || table.Status == "dumping" {
 			MainLogger.Debug(table.Name + ": " + table.Status)
 			err := dumpfile.ClearIncompleteDumpedData(table.Name)
@@ -122,10 +125,6 @@ func initializeTables(appConfig *config.Config, esClient *elasticsearch.Client, 
 				return fmt.Errorf("set table status %s: %w", table.Name, err)
 			}
 
-			dumpFilePath, err := tableStorage.GetDumpFilePath(table.Name)
-			if err != nil {
-				return fmt.Errorf("set table status %s: %w", table.Name, err)
-			}
 			columnsInfo, err:= dumpfile.GetTableColsInfoFromDumpFile(dumpFilePath)
 			if err != nil {
 				return err
@@ -150,29 +149,17 @@ func initializeTables(appConfig *config.Config, esClient *elasticsearch.Client, 
 
 		if table.Status == "moved" {
 			MainLogger.Debug("Syncing with the main loop for table: " + table.Name)
-			dumpFilePath, err := tableStorage.GetDumpFilePath(table.Name)
-			if err != nil {
-				return err
-			}
 			tableBinlogPos, err := dumpfile.GetBinlogCoordinatesFromDumpfile(dumpFilePath)
 			if err != nil {
 				return fmt.Errorf("failed to parse binlog coordinates from dump file: %w", err)
 			}
-			// err = syncerpack.WriteDumpfilePosition(table.Name) // for safety
 
 			binlogPos, err := dumpfile.GetBinlogCoordinatesFromDumpfile(dumpFilePath)
-			// write the above info to a json file
 			if err != nil {
 				return fmt.Errorf("failed to parse binlog coordinates from dump: %w", err)
 			}
-			jsonData, err := json.Marshal(map[string]any{
-				"logfile": binlogPos.Logfile,
-				"logpos":  binlogPos.Logpos,
-			})
-			if err != nil {
-				return fmt.Errorf("failed to marshal binlog coordinates: %w", err)
-			}
-			err = os.WriteFile(syncerpack.GetTableBinlogPositionFilePath(table.Name), jsonData, 0644)
+
+			err = tableStorage.SetTableBinlogPos(table.Name, binlogPos)
 			if err != nil {
 				return fmt.Errorf("failed to write dump file position: %w", err)
 			}

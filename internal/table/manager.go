@@ -1,5 +1,7 @@
 package table
 
+import "github.com/k1-end/mysql-2-elastic/internal/syncer"
+
 
 const (
     registeredTablesFilePath = "data/registered-tables.json"
@@ -9,6 +11,7 @@ type RegisteredTable struct {
     Name string `json:"name"`
     Status string `json:"status"`
 	Columns *[]ColumnInfo `json:"columns"`
+	BinlogPos *syncer.BinlogPosition `json:"binlog_pos"`
 }
 
 type ColumnInfo struct {

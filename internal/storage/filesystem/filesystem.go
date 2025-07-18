@@ -143,7 +143,11 @@ func (fs *FileStorage) SetDumpReadProgress(tableName string, progress int) (erro
 }
 
 func (fs *FileStorage) GetDumpFilePath(tableName string) (string, error) {
-   return "data/dumps/" + tableName + "/" + tableName + ".sql", nil
+   return fs.GetDumpFileDirectory(tableName) + "/" + tableName + ".sql", nil
+}
+
+func (fs *FileStorage) GetDumpFileDirectory(tableName string) (string) {
+   return "data/dumps/" + tableName
 }
 
 func (fs *FileStorage) SetTableBinlogPos(tableName string, binlogPos syncer.BinlogPosition) (error) {

@@ -10,6 +10,7 @@ type TableStorage interface {
 	GetTableStatus(tableName string) (string, error)
 	GetTable(tableName string) (table.RegisteredTable, error)
 	GetDumpFilePath(tableName string) (string, error)
+	GetDumpFileDirectory(tableName string) (string)
 	SetDumpReadProgress(tableName string, progress int) (error)
 	SetTableStatus(tableName string, status string) (error)
 	SetTableColsInfo(tableName string, colsInfo []table.ColumnInfo) (error)

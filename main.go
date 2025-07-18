@@ -28,6 +28,7 @@ import (
 	"github.com/k1-end/mysql-2-elastic/internal/storage/filesystem"
 	syncerpack "github.com/k1-end/mysql-2-elastic/internal/syncer"
 	tablepack "github.com/k1-end/mysql-2-elastic/internal/table"
+	"github.com/k1-end/mysql-2-elastic/internal/util"
 )
 
 var RestartChannel chan bool
@@ -38,7 +39,7 @@ var MainLogWriter *logger.SlogWriter
 func init() {
 	MainLogger = logger.NewLogger()
 	MainLogWriter = logger.NewSlogWriter(MainLogger, slog.LevelDebug)
-
+    util.CreateDirectoryIfNotExists("data/dumps")
 }
 
 func main() {
@@ -81,6 +82,7 @@ func initializeTables(appConfig *config.Config, esClient *elasticsearch.Client, 
 		MainLogger.Error(err.Error())
 		os.Exit(1)
 	}
+
     // Is there any registered tables?
 	if len(registeredTables) == 0 {
 		return errors.New("No registered tables.\n--- End ---")
@@ -103,6 +105,13 @@ func initializeTables(appConfig *config.Config, esClient *elasticsearch.Client, 
 			// Reset the table status to "created"
 			err = tableStorage.SetTableStatus(table.Name, "created")
 			if err != nil {
+				return fmt.Errorf("error set table status %s: %w", table.Name, err)
+			}
+
+			MainLogger.Debug("Dumping table: " + table.Name)
+			// Set the table status to "dumping"
+			err = tableStorage.SetTableStatus(table.Name, "dumping")
+			if err != nil {
 				return fmt.Errorf("set table status %s: %w", table.Name, err)
 			}
 
@@ -111,6 +120,12 @@ func initializeTables(appConfig *config.Config, esClient *elasticsearch.Client, 
 				MainLogger.Error(fmt.Sprintf("Fatal error InitialDump: %v", err))
 				panic(err)
 			}
+
+			err = tableStorage.SetTableStatus(table.Name, "dumped")
+			if err != nil {
+				return fmt.Errorf("set table status %s: %w", table.Name, err)
+			}
+
 			table.Status, err = tableStorage.GetTableStatus(table.Name)
 			if err != nil {
 				MainLogger.Error(err.Error())
@@ -132,7 +147,23 @@ func initializeTables(appConfig *config.Config, esClient *elasticsearch.Client, 
 				
 			tableStorage.SetTableColsInfo(table.Name, columnsInfo)
 
+			if table.DumpReadProgress == nil {
+				tableStorage.SetDumpReadProgress(table.Name, 0)
+			} 
+
+			// Refresh the table
+			table, err = tableStorage.GetTable(table.Name)
+			if err != nil {
+				MainLogger.Error(err.Error())
+				os.Exit(1)
+			}
+			
+			if table.Status != "moving" {
+				return fmt.Errorf("Table status in not *moving*")
+			}
             err = sendDataToElasticFromDumpfile(table, esClient, tableStorage)
+
+
 			if err != nil {
 				return fmt.Errorf("set table status %s: %w", table.Name, err)
 			}
@@ -419,15 +450,15 @@ func sendDataToElasticFromDumpfile(table tablepack.RegisteredTable, esClient *el
 		return err
 	}
 
-    if table.Status != "moving" {
-		return fmt.Errorf("Table status in not *moving*")
-    }
-
 	file, err := os.OpenFile(dumpFilePath, os.O_RDONLY, 0644)
 	if err != nil {
 		return fmt.Errorf("failed to open dump file: %w", err)
 	}
 	defer file.Close()
+
+	if table.DumpReadProgress == nil {
+		return fmt.Errorf("Uninitialized table: DumpReadProgress is nil %s", table.Name)
+	} 
 
 	_, err = file.Seek(int64(*table.DumpReadProgress), io.SeekStart)
 	if err != nil {
@@ -443,12 +474,7 @@ func sendDataToElasticFromDumpfile(table tablepack.RegisteredTable, esClient *el
 		line := strings.TrimSpace(scanner.Text())
 
 		if strings.HasPrefix(line, "INSERT INTO") && strings.HasSuffix(line, ";") {
-
-			err = processInsertString(table.Name, line, *table.Columns, esClient)
-			if err != nil {
-				return err
-			}
-
+			currentStatement.WriteString(line)
 			inInsertStatement = false
 		} else if strings.HasPrefix(line, "INSERT INTO") {
 			inInsertStatement = true
@@ -456,20 +482,20 @@ func sendDataToElasticFromDumpfile(table tablepack.RegisteredTable, esClient *el
 		} else if inInsertStatement {
 			currentStatement.WriteString(" " + line)
 			if strings.HasSuffix(line, ";") {
-				insertStatement := currentStatement.String()
-
-				err = processInsertString(table.Name, insertStatement, *table.Columns, esClient)
-				if err != nil {
-					return err
-				}
-
 				inInsertStatement = false
 			}
+
 		}
 
 		*table.DumpReadProgress += len(scanner.Bytes()) + 2 // +1 for the newline character consumed by scanner
+
 		if !inInsertStatement {
-			// err = syncerpack.WriteCurrentOffset(progressFile, currentOffset)
+			insertStatement := currentStatement.String()
+
+			err = processInsertString(table.Name, insertStatement, *table.Columns, esClient)
+			if err != nil {
+				return err
+			}
 			err = tableStorage.SetDumpReadProgress(table.Name, *table.DumpReadProgress)
 			if err != nil {
 				return err

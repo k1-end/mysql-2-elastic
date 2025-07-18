@@ -147,21 +147,6 @@ func GetBinlogCoordinatesFromDumpfile(dumpFilePath string) (syncer.BinlogPositio
 }
 
 func InitialDump(tableName string, appConfig *config.Config, logger *slog.Logger, tableStorage storage.TableStorage) error{
-	table, err := tableStorage.GetTable(tableName)
-    if err != nil {
-        return err
-    }
-	logger.Debug("Dumping table: " + table.Name)
-    if table.Status != "created" {
-        return fmt.Errorf("table %s is not in the created state", table.Name)
-    }
-
-    // Set the table status to "dumping"
-	err = tableStorage.SetTableStatus(table.Name, "dumping")
-	if err != nil {
-		return fmt.Errorf("set table status %s: %w", table.Name, err)
-	}
-
     args := []string{
         "--skip-ssl-verify",
 		"--single-transaction",
@@ -171,10 +156,10 @@ func InitialDump(tableName string, appConfig *config.Config, logger *slog.Logger
         fmt.Sprintf("--host=%s", appConfig.Database.Host),
         fmt.Sprintf("--port=%d", appConfig.Database.Port),
 		appConfig.Database.Name,
+		tableName,
 	}
-
-	args = append(args, []string{table.Name}...)
 	logger.Debug(strings.Join(args[:], " "))
+
     ctx := context.Background()
 	cmd := exec.CommandContext(
 		ctx,
@@ -182,8 +167,7 @@ func InitialDump(tableName string, appConfig *config.Config, logger *slog.Logger
 		args...,
 	)
 
-    util.CreateDirectoryIfNotExists("data/dumps")
-    util.CreateDirectoryIfNotExists("data/dumps/" + tableName)
+    util.CreateDirectoryIfNotExists(tableStorage.GetDumpFileDirectory(tableName))
     outputFile, err := tableStorage.GetDumpFilePath(tableName)
 	if err != nil {
 		return fmt.Errorf("failed to create output file: %w", err)
@@ -214,11 +198,6 @@ func InitialDump(tableName string, appConfig *config.Config, logger *slog.Logger
 
 	if err := cmd.Wait(); err != nil {
 		return fmt.Errorf("mysqldump failed: %w", err)
-	}
-
-	err = tableStorage.SetTableStatus(table.Name, "dumped")
-	if err != nil {
-		return fmt.Errorf("set table status %s: %w", table.Name, err)
 	}
 
 	logger.Debug("Dump completed successfully.")

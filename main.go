@@ -208,7 +208,6 @@ func initializeTables(appConfig *config.Config, esClient *elasticsearch.Client, 
 				}
 			} else if newerBinlog == table.BinlogPos{
 				MainLogger.Debug("Dump file is newer than main binlog. Syncing main binlog with dump file...")
-				currentBinlogPos, err := syncerpack.GetStoredBinlogCoordinates("main")
 				if err != nil {
 					return fmt.Errorf("failed to parse binlog coordinates from dump file: %w", err)
 				}
@@ -225,21 +224,16 @@ func initializeTables(appConfig *config.Config, esClient *elasticsearch.Client, 
 						synchingTableNames = append(synchingTableNames, name)
 					}
 				}
-				err = SyncTablesTillDestination(synchingTableNames, *table.BinlogPos, currentBinlogPos, esClient, syncer, tableStorage)
+				err = SyncTablesTillDestination(synchingTableNames, *table.BinlogPos, mainBinlogPos, esClient, syncer, tableStorage)
 				if err != nil {
 					return fmt.Errorf("failed to sync table until destination: %w", err)
 				}
 			}
+
 			MainLogger.Debug("Sync completed for table:" + table.Name)
 			err = tableStorage.SetTableStatus(table.Name, "syncing")
 			if err != nil {
 				return fmt.Errorf("set table status %s: %w", table.Name, err)
-			}
-
-			table.Status, err = tableStorage.GetTableStatus(table.Name)
-			if err != nil {
-				MainLogger.Error(err.Error())
-				os.Exit(1)
 			}
 		}
     }

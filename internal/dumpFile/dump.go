@@ -45,15 +45,33 @@ func GetTableColsInfoFromDumpFile(dumpFilePath string) ([]table.ColumnInfo, erro
 }
 
 func getColumnsInfoFromCreateStatement(cts *ast.CreateTableStmt) ([]table.ColumnInfo, error) {
+
+
+	// Create a map to easily check if a column name is part of the primary key
+	primaryKeyColumns := make(map[string]bool)
+
+	// Iterate through the constraints to find the primary key constraint
+	for _, constraint := range cts.Constraints {
+		if constraint.Tp == ast.ConstraintPrimaryKey {
+			for _, keyPart := range constraint.Keys {
+				primaryKeyColumns[keyPart.Column.Name.O] = true
+			}
+			// A table can only have one primary key, so we can break after finding it.
+			break
+		}
+	}
+
 	var columnsInfo []table.ColumnInfo
 	position := 0
 	for _, colDef := range cts.Cols {
 		colName := colDef.Name.Name.O // Column Name
 		colType := colDef.Tp.String() // Data Type string representation
+		isInPrimary := primaryKeyColumns[colName] // Check if the column name is in our primary key map
 		columnsInfo = append(columnsInfo, table.ColumnInfo{
 			Name:     colName,
 			Type:     colType,
 			Position: position,
+			IsInPrimaryKey: isInPrimary,
 		})
 		position += 1
 	}

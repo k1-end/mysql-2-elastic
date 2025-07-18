@@ -23,13 +23,13 @@ func ExtractValue(expr ast.ExprNode) (any, error) {
 }
 
 
-func GetColumnNameFromPosition(tableCols []table.ColumnInfo, position int) (string, error) {
+func GetColumnFromPosition(tableCols []table.ColumnInfo, position int) (table.ColumnInfo, error) {
     for _, col := range tableCols {
 		if col.Position == position {
-			return col.Name, nil
+			return col, nil
 		}
     }
-    return "", fmt.Errorf("Column Not found")
+    return table.ColumnInfo{}, fmt.Errorf("Column Not found")
 }
 
 

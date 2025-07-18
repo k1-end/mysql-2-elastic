@@ -161,12 +161,12 @@ func initializeTables(appConfig *config.Config, esClient *elasticsearch.Client, 
 			if table.Status != "moving" {
 				return fmt.Errorf("Table status in not *moving*")
 			}
+
             err = sendDataToElasticFromDumpfile(table, esClient, tableStorage)
-
-
 			if err != nil {
 				return fmt.Errorf("set table status %s: %w", table.Name, err)
 			}
+
 			err = tableStorage.SetTableStatus(table.Name, "moved")
 			if err != nil {
 				return fmt.Errorf("set table status %s: %w", table.Name, err)
@@ -208,9 +208,6 @@ func initializeTables(appConfig *config.Config, esClient *elasticsearch.Client, 
 				}
 			} else if newerBinlog == table.BinlogPos{
 				MainLogger.Debug("Dump file is newer than main binlog. Syncing main binlog with dump file...")
-				if err != nil {
-					return fmt.Errorf("failed to parse binlog coordinates from dump file: %w", err)
-				}
 
 				registeredTables, err := tableStorage.GetRegisteredTables()
 				if err != nil {
@@ -297,16 +294,19 @@ func runTheSyncer(appConfig *config.Config, esClient *elasticsearch.Client, sync
     }
 }
 
-func convertBinlogRowsToArrayOfMaps(rows [][]any, tableCols []tablepack.ColumnInfo) ([]map[string]any, error) {
-    var values []map[string]any 
+func convertBinlogRowsToDbRecords(rows [][]any, tableCols []tablepack.ColumnInfo) ([]tablepack.DbRecord, error) {
+    var values []tablepack.DbRecord
     for _, row := range rows {
-        var singleRecord = make(map[string]any)
+        var singleRecord tablepack.DbRecord
         for j, val := range row {
-            columnName, err := database.GetColumnNameFromPosition(tableCols, j)
+            column, err := database.GetColumnFromPosition(tableCols, j)
             if err != nil {
                 return nil, fmt.Errorf("Error getting column name from position %d: %w", j, err)
             }
-            singleRecord[columnName] = val
+            singleRecord.ColValues[column.Name] = val
+			if column.IsInPrimaryKey {
+				singleRecord.PrimaryKey = singleRecord.PrimaryKey + fmt.Sprintf("%v", val)
+			}
         }
         values = append(values, singleRecord)
     }
@@ -375,7 +375,7 @@ func processBinlogEvent(ev *replication.BinlogEvent, currentBinlogPos *syncerpac
 				MainLogger.Error(err.Error())
 				return err
 			}
-			records, err := convertBinlogRowsToArrayOfMaps(e.Rows, *tb.Columns)
+			records, err := convertBinlogRowsToDbRecords(e.Rows, *tb.Columns)
 			if err != nil {
 				MainLogger.Error(err.Error())
 				return err
@@ -402,7 +402,7 @@ func processBinlogEvent(ev *replication.BinlogEvent, currentBinlogPos *syncerpac
 				return err
 			}
 
-			records, err := convertBinlogRowsToArrayOfMaps(e.Rows, *tb.Columns)
+			records, err := convertBinlogRowsToDbRecords(e.Rows, *tb.Columns)
 			if err != nil {
 				MainLogger.Error(err.Error())
 				return err
@@ -419,7 +419,7 @@ func processBinlogEvent(ev *replication.BinlogEvent, currentBinlogPos *syncerpac
 				MainLogger.Error(err.Error())
 				return err
 			}
-			records, err:= convertBinlogRowsToArrayOfMaps(e.Rows, *tb.Columns)
+			records, err:= convertBinlogRowsToDbRecords(e.Rows, *tb.Columns)
 			if err != nil {
 				MainLogger.Error(err.Error())
 				return err
@@ -524,25 +524,28 @@ func processInsertString(tableName string, insertStatement string, tableCols []t
     if !ok {
         return fmt.Errorf("The provided SQL is not an INSERT statement.")
     }
-    var values []map[string]any 
+    var dbRecords []tablepack.DbRecord
     for i, row := range insertStmt.Lists {
-        var singleRecord = make(map[string]any)
+        var singleRecord tablepack.DbRecord
         for j, expr := range row {
             val, err := database.ExtractValue(expr)
             if err != nil {
                 MainLogger.Error(fmt.Sprintf("Error extracting value for column %d in row %d: %v\n", j+1, i+1, err))
 				panic(err)
             }
-            columnName, err := database.GetColumnNameFromPosition(tableCols, j)
+            column, err := database.GetColumnFromPosition(tableCols, j)
             if err != nil {
                 return fmt.Errorf("Error getting column name from position %d: %w", j, err)
             }
-            singleRecord[columnName] = val
+            singleRecord.ColValues[column.Name] = val
+			if column.IsInPrimaryKey {
+				singleRecord.PrimaryKey = singleRecord.PrimaryKey + fmt.Sprintf("%v", val)
+			}
         }
-        values = append(values, singleRecord)
+        dbRecords = append(dbRecords, singleRecord)
     }
 
-    err = elasticpack.BulkSendToElastic(tableName, values, esClient, MainLogger)
+    err = elasticpack.BulkSendToElastic(tableName, dbRecords, esClient, MainLogger)
     if err != nil {
         return err
     }

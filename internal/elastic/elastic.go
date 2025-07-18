@@ -12,6 +12,7 @@ import (
 	"github.com/elastic/go-elasticsearch/v7"
 	"github.com/elastic/go-elasticsearch/v7/esapi"
 	"github.com/k1-end/mysql-2-elastic/internal/config"
+	"github.com/k1-end/mysql-2-elastic/internal/table"
 )
 
 func GetElasticClient(appConfig *config.Config) (*elasticsearch.Client, error){
@@ -37,7 +38,7 @@ func GetElasticClient(appConfig *config.Config) (*elasticsearch.Client, error){
 	return es, nil
 }
 
-func BulkSendToElastic(indexName string, documents []map[string]any, esClient *elasticsearch.Client, logger *slog.Logger) error{
+func BulkSendToElastic(indexName string, documents []table.DbRecord, esClient *elasticsearch.Client, logger *slog.Logger) error{
     if len(documents) == 0 {
         return fmt.Errorf("no documents to index")
     }
@@ -50,8 +51,8 @@ func BulkSendToElastic(indexName string, documents []map[string]any, esClient *e
             },
         }
         // If your document has an "id" field, you can use it for the document ID in Elasticsearch
-        if docID, ok := doc["id"]; ok {
-            meta["index"].(map[string]any)["_id"] = fmt.Sprintf("%v", docID)
+        if doc.PrimaryKey != ""{
+            meta["index"].(map[string]any)["_id"] = fmt.Sprintf("%v", doc.PrimaryKey)
         }
 
         metaBytes, err := json.Marshal(meta)
@@ -63,7 +64,7 @@ func BulkSendToElastic(indexName string, documents []map[string]any, esClient *e
         buf.WriteByte('\n')
 
         // Prepare the document source
-        docBytes, err := json.Marshal(doc)
+        docBytes, err := json.Marshal(doc.ColValues)
         if err != nil {
             logger.Debug(fmt.Sprintf("Error marshaling document: %s for doc: %+v", err, doc))
             continue // Or handle error more robustly
@@ -110,7 +111,7 @@ func BulkSendToElastic(indexName string, documents []map[string]any, esClient *e
     return nil
 }
 
-func BulkUpdateToElastic(indexName string, documents []map[string]any, esClient *elasticsearch.Client, logger *slog.Logger) error{
+func BulkUpdateToElastic(indexName string, documents []table.DbRecord, esClient *elasticsearch.Client, logger *slog.Logger) error{
     if len(documents) == 0 {
         return fmt.Errorf("no documents to index")
     }
@@ -127,19 +128,10 @@ func BulkUpdateToElastic(indexName string, documents []map[string]any, esClient 
     for _, doc := range documents {
 
         var id string
-        switch v := doc["id"].(type) {
-        case string:
-            // If the ID is a string, use it directly
-            id = doc["id"].(string)
-        case int:
-            // If the ID is an int, convert it to string
-            id = fmt.Sprintf("%d", v)
-        case int64:
-            // If the ID is an int, convert it to string
-            id = fmt.Sprintf("%d", v)
-        default:
-			return errors.New(fmt.Sprintf("Unexpected type for ID: %T\n", v))
-        }
+		id = doc.PrimaryKey
+		if id == "" {
+			return errors.New(fmt.Sprintf("No PrimaryKey detected: %v", doc))
+		}
 
         meta := map[string]any{
             "update": map[string]any{
@@ -156,14 +148,20 @@ func BulkUpdateToElastic(indexName string, documents []map[string]any, esClient 
         bulkBody.WriteString("\n")
 
         docBytes, err := json.Marshal(map[string]any{
-            "doc": doc,
+            "doc": doc.ColValues,
         })
         if err != nil {
             logger.Error(fmt.Sprintf("Error marshaling docUpdate1: %s", err))
 			panic(err)
         }
-        bulkBody.Write(docBytes)
-        bulkBody.WriteString("\n")
+
+        _, err = bulkBody.Write(docBytes)
+		if err != nil {
+			logger.Error(fmt.Sprintf("Unexpected error adding item '%s' to BulkIndexer: %s", id, err))
+			panic(err)
+		}
+
+        _, err = bulkBody.WriteString("\n")
 		if err != nil {
 			logger.Error(fmt.Sprintf("Unexpected error adding item '%s' to BulkIndexer: %s", id, err))
 			panic(err)
@@ -189,7 +187,7 @@ func BulkUpdateToElastic(indexName string, documents []map[string]any, esClient 
 
     var bulkRes map[string]any
 	if err := json.NewDecoder(res.Body).Decode(&bulkRes); err != nil {
-		logger.Error("Error parsing the bulk response: %s", err)
+		logger.Error(fmt.Sprintf("Error parsing the bulk response: %s", err))
 		panic(err)
 	}
 
@@ -238,7 +236,7 @@ func BulkUpdateToElastic(indexName string, documents []map[string]any, esClient 
 }
 
 
-func BulkDeleteFromElastic(indexName string, documents []map[string]any, esClient *elasticsearch.Client, logger *slog.Logger) error {
+func BulkDeleteFromElastic(indexName string, documents []table.DbRecord, esClient *elasticsearch.Client, logger *slog.Logger) error {
 
 	// --- Build the NDJSON request body ---
 	// Each delete operation requires one line:
@@ -250,21 +248,11 @@ func BulkDeleteFromElastic(indexName string, documents []map[string]any, esClien
 
     for _, doc := range documents {
         var id string
-        switch v := doc["id"].(type) {
-        case string:
-            // If the ID is a string, use it directly
-            id = doc["id"].(string)
-        case int:
-            // If the ID is an int, convert it to string
-            id = fmt.Sprintf("%d", v)
-        case int64:
-            // If the ID is an int, convert it to string
-            id = fmt.Sprintf("%d", v)
-        default:
-            logger.Error(fmt.Sprintf("Unexpected type for ID: %T\n", v))
-			panic(nil)
-            
-        }
+		id = doc.PrimaryKey
+		if id == "" {
+			return errors.New(fmt.Sprintf("No PrimaryKey detected: %v", doc))
+		}
+
         meta := map[string]any{
             "delete": map[string]any{
                 "_index": indexName,
@@ -302,10 +290,10 @@ func BulkDeleteFromElastic(indexName string, documents []map[string]any, esClien
 		var e map[string]any
 		if err := json.NewDecoder(res.Body).Decode(&e); err != nil {
 			logger.Error(fmt.Sprintf("Error parsing the response body: %s", err))
-			panic(err)
+			return err
 		}
 		logger.Error(fmt.Sprintf("Elasticsearch returned an error [%s]: %s", res.Status(), e["error"]))
-		panic(err)
+		return err
 	}
 
 	var bulkRes map[string]any

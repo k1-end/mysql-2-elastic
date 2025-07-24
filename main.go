@@ -280,7 +280,7 @@ func runTheSyncer(appConfig *config.Config, esClient *elasticsearch.Client, sync
 
     if err != nil {
 		MainLogger.Error(err.Error())
-		panic(err)
+		os.Exit(1)
     }
 
     for {

@@ -189,6 +189,13 @@ func initializeTables(appConfig *config.Config, esClient *elasticsearch.Client, 
 				return fmt.Errorf("failed to write dump file position: %w", err)
 			}
 
+			// Refresh the table
+			table, err = tableStorage.GetTable(table.Name)
+			if err != nil {
+				MainLogger.Error(err.Error())
+				os.Exit(1)
+			}
+			
 			mainBinlogPos, err := syncerpack.GetStoredBinlogCoordinates("main")
 			if err != nil {
 				return fmt.Errorf("failed to get binlog coordinates: %w", err)

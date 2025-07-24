@@ -18,7 +18,6 @@ import (
 	"github.com/pingcap/tidb/pkg/parser"
 	"github.com/pingcap/tidb/pkg/parser/ast"
 
-	"github.com/k1-end/mysql-2-elastic/internal/api"
 	"github.com/k1-end/mysql-2-elastic/internal/config"
 	"github.com/k1-end/mysql-2-elastic/internal/database"
 	dumpfile "github.com/k1-end/mysql-2-elastic/internal/dumpFile"
@@ -70,9 +69,7 @@ func main() {
 		MainLogger.Error(err.Error())
 	}
 
-    go runTheSyncer(appConfig, esClient, syncer, fs)
-
-	api.Serve(MainLogger)
+    runTheSyncer(appConfig, esClient, syncer, fs)
 }
 
 func initializeTables(appConfig *config.Config, esClient *elasticsearch.Client, syncer *replication.BinlogSyncer, tableStorage storage.TableStorage) error{

@@ -194,6 +194,9 @@ func initializeTables(appConfig *config.Config, esClient *elasticsearch.Client, 
 				return fmt.Errorf("failed to get binlog coordinates: %w", err)
 			}
 
+			if mainBinlogPos.Logfile == "binlog.000000" && mainBinlogPos.Logpos == 0 {
+				syncerpack.WriteBinlogPosition(*table.BinlogPos, "main") // Update the position after not registered table or rotation
+			}
 			newerBinlog := syncerpack.GetNewerBinlogPosition(&mainBinlogPos, table.BinlogPos)
 
 			if newerBinlog == &mainBinlogPos{

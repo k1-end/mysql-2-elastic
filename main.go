@@ -546,6 +546,7 @@ func processInsertString(tableName string, insertStatement string, tableCols []t
     var dbRecords []tablepack.DbRecord
     for i, row := range insertStmt.Lists {
         var singleRecord tablepack.DbRecord
+		singleRecord.ColValues = make(map[string]any)
         for j, expr := range row {
             val, err := database.ExtractValue(expr)
             if err != nil {

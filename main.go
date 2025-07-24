@@ -305,6 +305,9 @@ func runTheSyncer(appConfig *config.Config, esClient *elasticsearch.Client, sync
 			}
         }
     }
+
+	defer syncer.Close()
+
 }
 
 func convertBinlogRowsToDbRecords(rows [][]any, tableCols []tablepack.ColumnInfo) ([]tablepack.DbRecord, error) {
@@ -340,6 +343,7 @@ func SyncTablesTillDestination(
         Name: currentBinlogPos.Logfile,
         Pos: currentBinlogPos.Logpos,
     })
+	defer syncer.Close()
 
     for syncerpack.GetNewerBinlogPosition(&currentBinlogPos, &desBinlogPos) == &desBinlogPos {
 		ev, err := streamer.GetEvent(context.Background())

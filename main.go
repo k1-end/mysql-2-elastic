@@ -67,6 +67,7 @@ func main() {
 	err = initializeTables(appConfig, esClient, syncer, fs)
 	if err != nil {
 		MainLogger.Error(err.Error())
+		os.Exit(1)
 	}
 
     runTheSyncer(appConfig, esClient, syncer, fs)

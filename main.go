@@ -502,11 +502,13 @@ func sendDataToElasticFromDumpfile(table tablepack.RegisteredTable, esClient *el
 
 		if !inInsertStatement {
 			insertStatement := currentStatement.String()
-
-			err = processInsertString(table.Name, insertStatement, *table.Columns, esClient)
-			if err != nil {
-				return err
+			if len(insertStatement) > 0 {
+				err = processInsertString(table.Name, insertStatement, *table.Columns, esClient)
+				if err != nil {
+					return err
+				}
 			}
+
 			err = tableStorage.SetDumpReadProgress(table.Name, *table.DumpReadProgress)
 			if err != nil {
 				return err

@@ -3,12 +3,14 @@ package database
 import (
 	"database/sql"
 	"fmt"
+
+	tablepack "github.com/k1-end/mysql-2-elastic/internal/table"
 )
 
 // getMySQLRows retrieves all rows from a given MySQL table.
 // It returns a slice of maps, where each map represents a row
 // and keys are column names.
-func GetMySQLRows(db *sql.DB, tableName, primaryKeyColumn string) ([]map[string]any, error) {
+func GetMySQLRows(db *sql.DB, tableName, primaryKeyColumn string) ([]tablepack.DbRecord, error) {
 	query := fmt.Sprintf("SELECT * FROM `%s`", tableName)
 	rows, err := db.Query(query)
 	if err != nil {
@@ -21,7 +23,7 @@ func GetMySQLRows(db *sql.DB, tableName, primaryKeyColumn string) ([]map[string]
 		return nil, fmt.Errorf("failed to get columns for table %s: %w", tableName, err)
 	}
 
-	var results []map[string]any
+	var records []tablepack.DbRecord
 	for rows.Next() {
 		// Create a slice of any to hold the values for scanning
 		values := make([]any, len(columns))
@@ -34,24 +36,21 @@ func GetMySQLRows(db *sql.DB, tableName, primaryKeyColumn string) ([]map[string]
 			return nil, fmt.Errorf("failed to scan row from table %s: %w", tableName, err)
 		}
 
-		rowMap := make(map[string]any)
+        var singleRecord tablepack.DbRecord
+		singleRecord.ColValues = make(map[string]any)
 		for i, colName := range columns {
 			val := values[i]
-			if valBytes, ok := val.([]byte); ok {
-				// Handle byte slices (e.g., VARCHAR, TEXT, BLOB) by converting to string
-				rowMap[colName] = string(valBytes)
-			} else {
-				rowMap[colName] = val
-			}
+            singleRecord.ColValues[colName] = val
 		}
-		results = append(results, rowMap)
+
+		records = append(records, singleRecord)
 	}
 
 	if err = rows.Err(); err != nil {
 		return nil, fmt.Errorf("error during row iteration for table %s: %w", tableName, err)
 	}
 
-	return results, nil
+	return records, nil
 }
 
 func GetTableNames(db *sql.DB) ([]string, error) {

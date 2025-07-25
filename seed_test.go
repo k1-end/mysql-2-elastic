@@ -6,16 +6,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"reflect"
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 
+	"github.com/elastic/go-elasticsearch/v7"
+	"github.com/elastic/go-elasticsearch/v7/esapi"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/k1-end/mysql-2-elastic/internal/config"
 	databasemodule "github.com/k1-end/mysql-2-elastic/internal/database"
-	"github.com/olivere/elastic/v7"
+	"github.com/k1-end/mysql-2-elastic/internal/elastic"
+	"github.com/k1-end/mysql-2-elastic/internal/storage/filesystem"
+	"github.com/k1-end/mysql-2-elastic/internal/table"
 )
 
 
@@ -52,26 +54,20 @@ func TestSeed(t *testing.T) {
 	MainLogger.Debug("Successfully connected to MySQL.")
 
 	// --- 3. Connect to Elasticsearch ---
-	esClient, err := elastic.NewClient(
-		elastic.SetURL(appConfig.Elastic.Address ),
-		elastic.SetSniff(false), // Disable sniffing for local/single-node setups if needed
-		elastic.SetHealthcheckInterval(10*time.Second),
-		elastic.SetInfoLog(MainLogWriter),
-		elastic.SetErrorLog(MainLogWriter),
-		elastic.SetBasicAuth(appConfig.Elastic.Username, appConfig.Elastic.Password),
-	)
+	// esClient, err := elastic.NewClient(
+	// 	elastic.SetURL(appConfig.Elastic.Address ),
+	// 	elastic.SetSniff(false), // Disable sniffing for local/single-node setups if needed
+	// 	elastic.SetHealthcheckInterval(10*time.Second),
+	// 	elastic.SetInfoLog(MainLogWriter),
+	// 	elastic.SetErrorLog(MainLogWriter),
+	// 	elastic.SetBasicAuth(appConfig.Elastic.Username, appConfig.Elastic.Password),
+	// )
+
+	esClient, err := elastic.GetElasticClient(appConfig) 
 	if err != nil {
 		MainLogger.Error(fmt.Sprintf("Error creating Elasticsearch client: %v", err))
-		panic(err)
+		os.Exit(1)
 	}
-
-	// Ping the Elasticsearch cluster to ensure connection
-	info, code, err := esClient.Ping(appConfig.Elastic.Address).Do(context.Background())
-	if err != nil {
-		MainLogger.Error(fmt.Sprintf("Error pinging Elasticsearch: %v", err))
-		panic(err)
-	}
-	MainLogger.Debug(fmt.Sprintf("Successfully connected to Elasticsearch. Version: %s, Code: %d\n", info.Version.Number, code))
 
 	// --- 4. Get List of Tables from MySQL ---
 	// You might want to specify which tables to check explicitly instead of all.
@@ -101,7 +97,7 @@ func TestSeed(t *testing.T) {
 		// By default, we assume:
 		// 1. Elasticsearch index name is the same as the MySQL table name (lowercase).
 		// 2. The MySQL primary key column is named 'id' and its value is used as Elasticsearch's _id.
-		primaryKeyColumnName := "id" // Adjust this if your primary key column is named differently
+		primaryKeyColumnName := "ID" // Adjust this if your primary key column is named differently
 		elasticsearchIndex := tableName // Often, ES index names are lowercase
 
 		// Get all rows from the MySQL table
@@ -121,20 +117,30 @@ func TestSeed(t *testing.T) {
 		tableMissingRows := 0
 		tableVerifiedRows := 0
 
+		fs, err := filesystem.NewFileStorage()
+		if err != nil {
+			MainLogger.Debug(fmt.Sprintf("Error getting filesystem instance:%s %v\n", tableName, err))
+			continue
+		}
+
+		registeredTable, err := fs.GetTable(tableName)
+		if err != nil {
+			MainLogger.Debug(fmt.Sprintf("Error getting table:%s %v\n", tableName, err))
+			continue
+		}
+
+
 		for _, mysqlRow := range mysqlRows {
-			primaryKeyValue, ok := mysqlRow[primaryKeyColumnName]
-			if !ok {
+			primaryKeyValue, err := mysqlRow.GeneratePK(*registeredTable.Columns)
+			if err != nil {
 				MainLogger.Debug(fmt.Sprintf("Warning: Primary key column '%s' not found in row from table '%s'. Skipping row.\n", primaryKeyColumnName, tableName))
 				continue
 			}
 
-			// Convert primary key value to string for Elasticsearch _id
-			docID := fmt.Sprintf("%v", primaryKeyValue)
-
 			// Check if the document exists in Elasticsearch
-			exists, err := checkElasticsearchDocument(esClient, elasticsearchIndex, docID)
+			exists, err := checkElasticsearchDocument(esClient, elasticsearchIndex, primaryKeyValue, mysqlRow)
 			if err != nil {
-				MainLogger.Debug(fmt.Sprintf("Error checking document %s/%s in Elasticsearch: %v\n", elasticsearchIndex, docID, err))
+				MainLogger.Debug(fmt.Sprintf("Error checking document %s/%s in Elasticsearch: %v\n", elasticsearchIndex, primaryKeyValue, err))
 				// Consider this a failure for reporting purposes
 				tableMissingRows++
 				continue
@@ -143,18 +149,8 @@ func TestSeed(t *testing.T) {
 			if exists {
 				// Optional: Fetch the document and perform a deeper comparison.
 				// This requires careful handling of data types and potential transformations.
-				// For now, we'll just confirm existence.
-				// Example of fetching and printing (not a full comparison):
-				// getResponse, err := esClient.Get().Index(elasticsearchIndex).Id(docID).Do(context.Background())
-				// if err == nil && getResponse.Found {
-				// 	log.Printf("  Row with ID '%s' found in ES. Source: %s\n", docID, *getResponse.Source)
-				// }
-
-				MainLogger.Debug(fmt.Sprintf("  [OK] Row with ID '%s' in table '%s' successfully found in Elasticsearch index '%s'.\n", docID, tableName, elasticsearchIndex))
+				MainLogger.Debug(fmt.Sprintf("  [OK] Row with ID '%s' in table '%s' successfully found in Elasticsearch index '%s'.\n", primaryKeyValue, tableName, elasticsearchIndex))
 				tableVerifiedRows++
-			} else {
-				MainLogger.Debug(fmt.Sprintf("  [FAIL] Row with ID '%s' in table '%s' IS MISSING from Elasticsearch index '%s'.\n", docID, tableName, elasticsearchIndex))
-				tableMissingRows++
 			}
 		}
 		MainLogger.Debug(fmt.Sprintf("--- Summary for table '%s': Verified: %d, Missing: %d ---\n", tableName, tableVerifiedRows, tableMissingRows))
@@ -175,45 +171,97 @@ func TestSeed(t *testing.T) {
 
 // getTableNames retrieves a list of table names from the MySQL database.
 // checkElasticsearchDocument checks if a document with a given ID exists in an Elasticsearch index.
-func checkElasticsearchDocument(client *elastic.Client, index, docID string) (bool, error) {
-	// We only need to check for existence, so a Head request is efficient.
-	// You could also use a Get request and check getResponse.Found.
-	exists, err := client.Exists().Index(index).Id(docID).Do(nil)
-	if err != nil {
-		// Log the error but don't fail the whole program
-		return false, fmt.Errorf("Elasticsearch exists check failed for index '%s', ID '%s': %w", index, docID, err)
+func checkElasticsearchDocument(client *elasticsearch.Client, index, docID string, dbRecord table.DbRecord) (bool, error) {
+	reqGet := esapi.GetRequest{
+		Index:      index,
+		DocumentID: docID,
 	}
-	return exists, nil
-}
-
-// --- Optional: For a more thorough comparison (advanced) ---
-// compareDocuments compares two maps representing documents.
-// This is a basic example and might need to be more sophisticated
-// depending on your data types and transformations.
-func compareDocuments(mysqlDoc, esDoc map[string]any) bool {
-	// A simple check: are all keys from MySQL present in ES with same values?
-	// This does not handle missing keys in MySQL that might be in ES, or type conversions.
-	for k, v := range mysqlDoc {
-		esVal, ok := esDoc[k]
-		if !ok {
-			MainLogger.Debug(fmt.Sprintf("  Key '%s' missing in Elasticsearch document.\n", k))
-			return false
-		}
-		if !reflect.DeepEqual(v, esVal) {
-			MainLogger.Debug(fmt.Sprintf("  Value mismatch for key '%s': MySQL='%v', ES='%v'\n", k, v, esVal))
-			return false
+	resGet, err := reqGet.Do(context.Background(), client)
+	if err != nil {
+		return false, fmt.Errorf("Error performing GET request: %s", err)
+	}
+	defer resGet.Body.Close()
+	if resGet.IsError() {
+		if resGet.StatusCode == 404 {
+			return false, fmt.Errorf("Document with ID '%s' not found in index '%s %v'\n", docID, index, resGet)
+		} else {
+			return false, fmt.Errorf("Error getting document: %s", resGet.Status())
 		}
 	}
-	return true
-}
 
-// prettyPrintJSON prints a map as indented JSON.
-func prettyPrintJSON(data map[string]any) string {
-	b, err := json.MarshalIndent(data, "", "  ")
-	if err != nil {
-		MainLogger.Debug(fmt.Sprintf("Error marshalling JSON: %v", err))
-		return err.Error()
+	var r map[string]any
+	if err := json.NewDecoder(resGet.Body).Decode(&r); err != nil {
+		return false, fmt.Errorf("Error parsing the response body: %s", err)
 	}
-	return string(b)
-}
 
+	// Access the document source
+	source, ok := r["_source"].(map[string]any)
+	if !ok {
+		return false, fmt.Errorf("Error asserting _source to map[string]interface{}")
+	}
+
+	for key, esValue := range source {
+		dbValue, ok := dbRecord.ColValues[key]
+        if !ok {
+            // This means a field exists in ES but not in your DB record.
+            // You might want to skip it, or consider it an error.
+            // For now, let's just log it and potentially skip.
+            // fmt.Printf("Warning: Key '%s' found in Elasticsearch document but not in DB record.\n", key)
+			return false, fmt.Errorf("A field exists in ES but not in your DB record: %s", key)
+        }
+
+		switch v := esValue.(type) {
+        case string:
+            // Compare string from ES with string from DB (or convert DB []byte to string)
+            dbValStr, dbIsString := dbValue.(string)
+            dbValBytes, dbIsBytes := dbValue.([]byte)
+
+            if dbIsString && v == dbValStr {
+                continue
+            } else if dbIsBytes && v == string(dbValBytes) {
+                continue
+            } else {
+                return false, fmt.Errorf("value mismatch for key '%s': ES '%v' (type %T) != DB '%v' (type %T)", key, esValue, esValue, dbValue, dbValue)
+            }
+		case float64: // Numbers from ES are typically float64 (e.g., 1375.0)
+            // Handle DB values that could be int, int64, or []byte (string representation of number)
+            dbValInt, dbIsInt := dbValue.(int)
+            dbValInt64, dbIsInt64 := dbValue.(int64)
+            dbValBytes, dbIsBytes := dbValue.([]byte) // This is the new problematic type
+
+            if dbIsInt && v == float64(dbValInt) {
+                continue
+            } else if dbIsInt64 && v == float64(dbValInt64) {
+                continue
+            } else if dbIsBytes { // If DB value is []byte, try to convert it to a number
+                dbStr := string(dbValBytes) // Convert []byte to string "1375"
+                parsedFloat, err := strconv.ParseFloat(dbStr, 64)
+                if err == nil && v == parsedFloat { // Compare as float64
+                    continue
+                } else {
+                    return false, fmt.Errorf("value mismatch for key '%s': ES '%v' (type %T) != DB '%v' (type %T) (Failed to parse or mismatch for []byte)", key, esValue, esValue, dbValue, dbValue)
+                }
+            } else {
+                // Fallback for other non-float64 numeric types from DB that don't match
+                return false, fmt.Errorf("value mismatch for key '%s': ES '%v' (type %T) != DB '%v' (type %T)", key, esValue, esValue, dbValue, dbValue)
+            }
+        // Add more cases for other types if necessary (e.g., bool, map[string]interface{}, []interface{})
+        // For example, if you have boolean fields:
+        case bool:
+            dbValBool, dbIsBool := dbValue.(bool)
+            if dbIsBool && v == dbValBool {
+                continue
+            } else {
+                 return false, fmt.Errorf("value mismatch for key '%s': ES '%v' (type %T) != DB '%v' (type %T)", key, esValue, esValue, dbValue, dbValue)
+            }
+        default:
+            // Fallback for types not explicitly handled.
+            // This will still perform a direct interface comparison.
+            if dbValue != esValue {
+                 return false, fmt.Errorf("value mismatch for key '%s' (unhandled type): ES '%v' (type %T) != DB '%v' (type %T)", key, esValue, esValue, dbValue, dbValue)
+            }
+        }
+	}
+
+	return true, nil
+}

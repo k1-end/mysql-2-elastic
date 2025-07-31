@@ -38,8 +38,9 @@ func NewFileStorage(tableNames []string) (*FileStorage, error) {
 			var notFoundErr *storage.TableNotFoundError
 			if errors.As(err, &notFoundErr) {
 				fs.addTable(t)
+			}else {
+				return nil, err
 			}
-			return nil, err
 		}
 	}
 	return &FileStorage{}, nil

@@ -7,13 +7,14 @@ import (
 )
 
 type DatabaseConfig struct {
-	Driver   string `mapstructure:"driver"`
-	Host     string `mapstructure:"host"`
-	Port     int    `mapstructure:"port"`
-	ServerId int    `mapstructure:"server_id"`
-	Name     string `mapstructure:"name"`
-	Username string `mapstructure:"username"`
-	Password string `mapstructure:"password"`
+	Driver   string   `mapstructure:"driver"`
+	Host     string   `mapstructure:"host"`
+	Port     int      `mapstructure:"port"`
+	ServerId int      `mapstructure:"server_id"`
+	Name     string   `mapstructure:"name"`
+	Username string   `mapstructure:"username"`
+	Password string   `mapstructure:"password"`
+	Tables   []string `mapstructure:"tables"`
 }
 
 type ElasticConfig struct {

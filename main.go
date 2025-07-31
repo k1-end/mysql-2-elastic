@@ -59,7 +59,7 @@ func main() {
 		panic(err)
     }
 
-	fs, err := filesystem.NewFileStorage()
+	fs, err := filesystem.NewFileStorage(appConfig.Database.Tables)
 	if err != nil {
 		MainLogger.Error(err.Error())
 		os.Exit(1)

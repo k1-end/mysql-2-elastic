@@ -117,7 +117,7 @@ func TestSeed(t *testing.T) {
 		tableMissingRows := 0
 		tableVerifiedRows := 0
 
-		fs, err := filesystem.NewFileStorage()
+		fs, err := filesystem.NewFileStorage(appConfig.Database.Tables)
 		if err != nil {
 			MainLogger.Debug(fmt.Sprintf("Error getting filesystem instance:%s %v\n", tableName, err))
 			continue

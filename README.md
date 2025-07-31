@@ -56,22 +56,21 @@ The application uses a configuration file (e.g., `config.json` or environment va
 ```json
 // config.json (example)
 {
-  "mysql": {
+  "database": {
+    "driver": "mysql",
     "host": "127.0.0.1",
     "port": 3306,
-    "user": "your_mysql_user",
-    "password": "your_mysql_password",
-    "server_id": 101, // A unique server ID for the binlog syncer
-    "databases": [ // List of databases to monitor
-      "your_database_name"
-    ]
+    "name": "world",
+    "username": "root",
+    "password": "password",
+    "server_id": 100
   },
-  "elasticsearch": {
-    "addresses": [
-      "http://localhost:9200"
-    ],
-    "username": "your_es_user",
-    "password": "your_es_password"
+  "mysqldump_path": "/usr/bin/mariadb-dump",
+  "world_database_path": "world.sql", // This is just for testing
+  "elastic": {
+      "address": "http://127.0.0.1:9200",
+      "username": "elastic",
+      "password": "password"
   }
 }
 ```

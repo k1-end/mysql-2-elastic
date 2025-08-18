@@ -67,6 +67,9 @@ func getColumnsInfoFromCreateStatement(cts *ast.CreateTableStmt) ([]table.Column
 		colName := colDef.Name.Name.O // Column Name
 		colType := colDef.Tp.String() // Data Type string representation
 		isInPrimary := primaryKeyColumns[colName] // Check if the column name is in our primary key map
+		if strings.Contains(strings.ToLower(colType), "enum") {
+			return []table.ColumnInfo{}, fmt.Errorf("enum types are not supported yet")
+		}
 		columnsInfo = append(columnsInfo, table.ColumnInfo{
 			Name:     colName,
 			Type:     colType,

@@ -50,7 +50,7 @@ services:
       ELASTICSEARCH_HOSTS: http://elastic:9200
 
   main:
-    image: ghcr.io/k1-end/mysql-2-elastic
+    image: base-go-1
     restart: unless-stopped
     ports:
       - "9999:8080"

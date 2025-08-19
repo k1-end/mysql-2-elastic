@@ -98,3 +98,25 @@ func GetDatabaseSyncer(appConfig *config.Config, logger *slog.Logger) (*replicat
 	return syncer, nil
 }
 
+func InitializeBinlog() error {
+	data, err := os.ReadFile(getMainBinlogPositionFilePath())
+
+	// Check for read errors (excluding file not exists for emptiness check)
+	if err != nil && !os.IsNotExist(err) {
+        return fmt.Errorf("error reading file %s: %w", getMainBinlogPositionFilePath(), err)
+	}
+
+	empty :=  os.IsNotExist(err) || len(strings.TrimSpace(string(data))) == 0
+
+	if empty{
+		bp := BinlogPosition{
+			Logfile: "binlog.000000",
+			Logpos: 0,
+		}
+		err = WriteBinlogPosition(bp, "main")
+		if err != nil{
+			return fmt.Errorf("error writing file: %w", err)
+		}
+	}
+	return nil
+}

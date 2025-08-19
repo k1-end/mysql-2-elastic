@@ -59,6 +59,12 @@ func main() {
 		panic(err)
     }
 
+	err = syncerpack.InitializeBinlog()
+    if err != nil {
+		MainLogger.Error(err.Error())
+		panic(err)
+    }
+
 	fs, err := filesystem.NewFileStorage(appConfig.Database.Tables)
 	if err != nil {
 		MainLogger.Error(err.Error())
@@ -311,6 +317,7 @@ func convertBinlogRowsToDbRecords(rows [][]any, tableCols []tablepack.ColumnInfo
     var values []tablepack.DbRecord
     for _, row := range rows {
         var singleRecord tablepack.DbRecord
+		singleRecord.ColValues = make(map[string]any)
         for j, val := range row {
             column, err := database.GetColumnFromPosition(tableCols, j)
             if err != nil {

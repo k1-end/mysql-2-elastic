@@ -3,6 +3,8 @@ package database
 import (
 	"database/sql"
 	"fmt"
+	"sort"
+	"strings"
 
 	tablepack "github.com/k1-end/mysql-2-elastic/internal/table"
 )
@@ -74,4 +76,77 @@ func GetTableNames(db *sql.DB) ([]string, error) {
 	return tables, nil
 }
 
+// InsertRowIntoTable safely inserts a new row into the specified table using a parameterized query.
+func InsertRowIntoTable(db *sql.DB, tableName string, dbRecord tablepack.DbRecord) (int64, error) {
+
+	// Get the keys from the map and sort them
+	keys := make([]string, 0, len(dbRecord.ColValues))
+	for k := range dbRecord.ColValues {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys) // Sort the column names alphabetically
+
+	// Now, iterate over the sorted keys to build your slices in a predictable order
+	colNames := make([]string, 0, len(keys))
+	placeholders := make([]string, 0, len(keys))
+	args := make([]any, 0, len(keys))
+
+	for _, col := range keys {
+		val := dbRecord.ColValues[col]
+		colNames = append(colNames, fmt.Sprintf("`%s`", col))
+		placeholders = append(placeholders, "?")
+		args = append(args, val)
+	}
+
+	// Build the final query string.
+	query := fmt.Sprintf(
+		"INSERT INTO `%s` (%s) VALUES (%s)",
+		tableName,
+		strings.Join(colNames, ", "),
+		strings.Join(placeholders, ", "),
+		)
+
+	tx, err := db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback() // The rollback will be called unless we commit
+
+
+	// Prepare the statement on the transaction
+	stmt, err := tx.Prepare(query)
+	if err != nil {
+		return 0, err
+	}
+	defer stmt.Close()
+
+	// Execute the prepared statement
+	result, err := stmt.Exec(args...)
+	if err != nil {
+		return 0, err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		// Handle error retrieving rows affected
+		return 0, err
+	}
+
+	if rowsAffected == 0 {
+		// This indicates a silent failure where the database rejected the insert.
+		// You may want to log more details here.
+		return 0, fmt.Errorf("no rows were inserted, possibly due to a constraint violation")
+	}
+
+	fmt.Println("No error")
+	fmt.Println("Rows effected", rowsAffected)
+	lastInsertedId, err := result.LastInsertId()
+	if err != nil {
+		return 0, err
+	}
+	fmt.Println("lastInsertedId", lastInsertedId)
+	// If all operations were successful, commit the transaction.
+	err = tx.Commit()
+	return lastInsertedId, err
+}
 

@@ -12,9 +12,24 @@ const (
     registeredTablesFilePath = "data/registered-tables.json"
 )
 
+// Define a custom type for TableStatus
+type TableStatus string
+
+// Define the table statuses as constants
+const (
+	Created   TableStatus = "created"
+	Dumping   TableStatus = "dumping"
+	Dumped    TableStatus = "dumped"
+	Moving    TableStatus = "moving"
+	Moved     TableStatus = "moved"
+	Syncing   TableStatus = "syncing"
+)
+
+
+
 type RegisteredTable struct {
     Name string `json:"name"`
-    Status string `json:"status"`
+    Status TableStatus `json:"status"`
 	Columns *[]ColumnInfo `json:"columns"`
 	BinlogPos *syncer.BinlogPosition `json:"binlog_pos"`
 	DumpReadProgress *int `json:"dump_read_progress"`

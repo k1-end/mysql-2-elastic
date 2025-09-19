@@ -99,22 +99,22 @@ func initializeTables(appConfig *config.Config, esClient *elasticsearch.Client, 
 		if err != nil {
 			return fmt.Errorf("set table status %s: %w", table.Name, err)
 		}
-		if table.Status == "created" || table.Status == "dumping" {
-			MainLogger.Debug(table.Name + ": " + table.Status)
+		if table.Status == tablepack.Created || table.Status == tablepack.Dumping {
+			MainLogger.Debug(table.Name + ": " + string(table.Status))
 			err := dumpfile.ClearIncompleteDumpedData(dumpFilePath)
 			if err != nil {
 				MainLogger.Error(fmt.Sprintf("Fatal error ClearIncompleteDumpedData: %v", err))
 				panic(err)
 			}
 			// Reset the table status to "created"
-			err = tableStorage.SetTableStatus(table.Name, "created")
+			err = tableStorage.SetTableStatus(table.Name, tablepack.Created)
 			if err != nil {
 				return fmt.Errorf("error set table status %s: %w", table.Name, err)
 			}
 
 			MainLogger.Debug("Dumping table: " + table.Name)
 			// Set the table status to "dumping"
-			err = tableStorage.SetTableStatus(table.Name, "dumping")
+			err = tableStorage.SetTableStatus(table.Name, tablepack.Dumping)
 			if err != nil {
 				return fmt.Errorf("set table status %s: %w", table.Name, err)
 			}
@@ -125,7 +125,7 @@ func initializeTables(appConfig *config.Config, esClient *elasticsearch.Client, 
 				panic(err)
 			}
 
-			err = tableStorage.SetTableStatus(table.Name, "dumped")
+			err = tableStorage.SetTableStatus(table.Name, tablepack.Dumped)
 			if err != nil {
 				return fmt.Errorf("set table status %s: %w", table.Name, err)
 			}
@@ -137,9 +137,9 @@ func initializeTables(appConfig *config.Config, esClient *elasticsearch.Client, 
 			}
 		}
 
-		if table.Status == "dumped" || table.Status == "moving" {
-			MainLogger.Debug(table.Name + ": " + table.Status)
-			err = tableStorage.SetTableStatus(table.Name, "moving")
+		if table.Status == tablepack.Dumped || table.Status == tablepack.Moving {
+			MainLogger.Debug(table.Name + ": " + string(table.Status))
+			err = tableStorage.SetTableStatus(table.Name, tablepack.Moving)
 			if err != nil {
 				return fmt.Errorf("set table status %s: %w", table.Name, err)
 			}
@@ -162,7 +162,7 @@ func initializeTables(appConfig *config.Config, esClient *elasticsearch.Client, 
 				os.Exit(1)
 			}
 			
-			if table.Status != "moving" {
+			if table.Status != tablepack.Moving {
 				return fmt.Errorf("Table status in not *moving*")
 			}
 
@@ -171,7 +171,7 @@ func initializeTables(appConfig *config.Config, esClient *elasticsearch.Client, 
 				return fmt.Errorf("set table status %s: %w", table.Name, err)
 			}
 
-			err = tableStorage.SetTableStatus(table.Name, "moved")
+			err = tableStorage.SetTableStatus(table.Name, tablepack.Moved)
 			if err != nil {
 				return fmt.Errorf("set table status %s: %w", table.Name, err)
 			}
@@ -182,7 +182,7 @@ func initializeTables(appConfig *config.Config, esClient *elasticsearch.Client, 
 			}
 		}
 
-		if table.Status == "moved" {
+		if table.Status == tablepack.Moved {
 			MainLogger.Debug("Syncing with the main loop for table: " + table.Name)
 
 			binlogPos, err := dumpfile.GetBinlogCoordinatesFromDumpfile(dumpFilePath)
@@ -236,7 +236,7 @@ func initializeTables(appConfig *config.Config, esClient *elasticsearch.Client, 
 				// filter registeredTables by syncing status
 				var synchingTableNames []string
 				for name, table := range registeredTables {
-					if table.Status == "syncing" {
+					if table.Status == tablepack.Syncing {
 						synchingTableNames = append(synchingTableNames, name)
 					}
 				}
@@ -247,7 +247,7 @@ func initializeTables(appConfig *config.Config, esClient *elasticsearch.Client, 
 			}
 
 			MainLogger.Debug("Sync completed for table:" + table.Name)
-			err = tableStorage.SetTableStatus(table.Name, "syncing")
+			err = tableStorage.SetTableStatus(table.Name, tablepack.Syncing)
 			if err != nil {
 				return fmt.Errorf("set table status %s: %w", table.Name, err)
 			}
@@ -266,7 +266,7 @@ func runTheSyncer(appConfig *config.Config, esClient *elasticsearch.Client, sync
 	}
     var tableNames []string
     for name, table := range registeredTables {
-        if table.Status == "syncing" {
+        if table.Status == tablepack.Syncing {
             tableNames = append(tableNames, name)
         }
     }

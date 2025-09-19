@@ -9,12 +9,12 @@ import (
 
 type TableStorage interface {
 	GetRegisteredTables() (map[string]table.RegisteredTable, error)
-	GetTableStatus(tableName string) (string, error)
+	GetTableStatus(tableName string) (table.TableStatus, error)
 	GetTable(tableName string) (table.RegisteredTable, error)
 	GetDumpFilePath(tableName string) (string, error)
 	GetDumpFileDirectory(tableName string) (string)
 	SetDumpReadProgress(tableName string, progress int) (error)
-	SetTableStatus(tableName string, status string) (error)
+	SetTableStatus(tableName string, status table.TableStatus) (error)
 	SetTableColsInfo(tableName string, colsInfo []table.ColumnInfo) (error)
 	SetTableBinlogPos(tableName string, binlogPos syncer.BinlogPosition) (error)
 }

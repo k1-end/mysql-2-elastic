@@ -67,7 +67,7 @@ func (fs *FileStorage) GetRegisteredTables() (map[string]table.RegisteredTable, 
 }
 
 
-func (fs *FileStorage) GetTableStatus(tableName string) (string, error)  {
+func (fs *FileStorage) GetTableStatus(tableName string) (table.TableStatus, error)  {
 
 	table, err := fs.GetTable(tableName)
 	if err != nil {
@@ -77,7 +77,7 @@ func (fs *FileStorage) GetTableStatus(tableName string) (string, error)  {
 	return status, nil
 }
 
-func (fs *FileStorage) SetTableStatus(tableName string, status string) (error)  {
+func (fs *FileStorage) SetTableStatus(tableName string, status table.TableStatus) (error)  {
 
 	registeredTables, err := fs.GetRegisteredTables()
 

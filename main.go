@@ -137,19 +137,44 @@ func initializeTables(appConfig *config.Config, esClient *elasticsearch.Client, 
 			}
 		}
 
-		if table.Status == tablepack.Dumped || table.Status == tablepack.Moving {
-			MainLogger.Debug(table.Name + ": " + string(table.Status))
-			err = tableStorage.SetTableStatus(table.Name, tablepack.Moving)
-			if err != nil {
-				return fmt.Errorf("set table status %s: %w", table.Name, err)
-			}
-
+		if table.Status == tablepack.Dumped {
 			columnsInfo, err:= dumpfile.GetTableColsInfoFromDumpFile(dumpFilePath)
 			if err != nil {
 				return err
 			}
 				
 			tableStorage.SetTableColsInfo(table.Name, columnsInfo)
+			table.Columns = &columnsInfo
+			// check if index exists in elastic
+			indexExists, err := elasticpack.CheckIfIndexExists(esClient, table.Name, MainLogger)
+			if err != nil {
+				return fmt.Errorf("check if index exists: %w", err)
+			}
+			if !indexExists {
+				MainLogger.Debug("Creating index in Elastic for table: " + table.Name)
+				err = elasticpack.CreateIndexInElastic(esClient, table, MainLogger)
+				if err != nil {
+					return fmt.Errorf("create index in elastic: %w", err)
+				}
+			}
+			err = tableStorage.SetTableStatus(table.Name, tablepack.InitializedInElastic)
+			if err != nil {
+				return fmt.Errorf("set table status %s: %w", table.Name, err)
+			}
+			table.Status, err = tableStorage.GetTableStatus(table.Name)
+			if err != nil {
+				MainLogger.Error(err.Error())
+				os.Exit(1)
+			}
+
+		}
+
+		if table.Status == tablepack.InitializedInElastic || table.Status == tablepack.Moving {
+			MainLogger.Debug(table.Name + ": " + string(table.Status))
+			err = tableStorage.SetTableStatus(table.Name, tablepack.Moving)
+			if err != nil {
+				return fmt.Errorf("set table status %s: %w", table.Name, err)
+			}
 
 			if table.DumpReadProgress == nil {
 				tableStorage.SetDumpReadProgress(table.Name, 0)

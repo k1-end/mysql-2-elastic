@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"strings"
 
 	"github.com/elastic/go-elasticsearch/v7"
@@ -344,4 +345,112 @@ func BulkDeleteFromElastic(indexName string, documents []table.DbRecord, esClien
 		logger.Debug("Some documents failed to delete. Check logs above.")
 	}
     return nil
+}
+
+func CheckIfIndexExists(esClient *elasticsearch.Client, indexName string, logger *slog.Logger) (bool, error){
+	res, err := esClient.Indices.Exists([]string{indexName})
+	if err != nil {
+		return false, fmt.Errorf("Error checking if index exists: %s", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode == 200 {
+		return true, nil
+	} else if res.StatusCode == 404 {
+		return false, nil
+	} else {
+		return false, fmt.Errorf("Unexpected response status: %d", res.StatusCode)
+	}
+}
+
+// create a function like this : err = elasticpack.CreateIndexInElastic(esClient, table.Name)
+func CreateIndexInElastic(esClient *elasticsearch.Client, t table.RegisteredTable, logger *slog.Logger) error{
+	// Define the index settings and mappings
+	indexConfig, err := generateEsMapping(t)
+	if err != nil {
+		return fmt.Errorf("Error generating es mapping: %s", err)
+	}
+	indexConfigBytes, err := json.Marshal(indexConfig)
+	if err != nil {
+		return fmt.Errorf("Error marshaling index configuration: %s", err)
+	}
+	
+	// Create the index
+	res, err := esClient.Indices.Create(
+		t.Name,
+		esClient.Indices.Create.WithBody(bytes.NewReader(indexConfigBytes)),
+	)
+	if err != nil {
+		return fmt.Errorf("Error creating index: %s", err)
+	}
+	defer res.Body.Close()
+	if res.IsError() {
+		return fmt.Errorf("Error response from Elasticsearch while creating index: %s", res.String())
+	}
+	logger.Info(fmt.Sprintf("Index %s created successfully.", t.Name))
+	return nil
+}
+
+// define a type for indexConfig
+type IndexConfig struct {
+	Mappings map[string]any `json:"mappings"`
+}
+
+
+func mysqlTypeToEsType(mysqlType string) string {
+	// normalize type string, lowercase
+	t := strings.ToLower(mysqlType)
+
+	// Remove length info, e.g. int(11) -> int
+	re := regexp.MustCompile(`\([0-9]+\)`)
+	t = re.ReplaceAllString(t, "")
+
+	switch t {
+	case "int", "tinyint", "smallint", "mediumint":
+		return "integer"
+	case "bigint":
+		return "long"
+	case "float":
+		return "float"
+	case "double", "real":
+		return "double"
+	case "decimal", "numeric":
+		return "double"
+	case "char", "varchar":
+		return "keyword"
+	case "text", "mediumtext", "longtext", "tinytext":
+		return "text"
+	case "date", "datetime", "timestamp":
+		return "date"
+	case "boolean", "bool":
+		return "boolean"
+	default:
+		// fallback type
+		return "text"
+	}
+}
+
+func generateEsMapping(table table.RegisteredTable) (map[string]interface{}, error) {
+	properties := make(map[string]interface{})
+
+	for _, col := range *table.Columns {
+		esType := mysqlTypeToEsType(col.Type)
+
+		// For date types, optionally add format (you can customize this)
+		fieldMapping := map[string]interface{}{
+			"type": esType,
+		}
+		if esType == "date" {
+			fieldMapping["format"] = "yyyy-MM-dd HH:mm:ss||yyyy-MM-dd||epoch_millis"
+		}
+
+		properties[col.Name] = fieldMapping
+	}
+
+	mapping := map[string]interface{}{
+		"mappings": map[string]interface{}{
+			"properties": properties,
+		},
+	}
+
+	return mapping, nil
 }

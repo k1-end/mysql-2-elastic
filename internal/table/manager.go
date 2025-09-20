@@ -17,12 +17,13 @@ type TableStatus string
 
 // Define the table statuses as constants
 const (
-	Created   TableStatus = "created"
-	Dumping   TableStatus = "dumping"
-	Dumped    TableStatus = "dumped"
-	Moving    TableStatus = "moving"
-	Moved     TableStatus = "moved"
-	Syncing   TableStatus = "syncing"
+	Created              TableStatus = "created"
+	Dumping              TableStatus = "dumping"
+	Dumped               TableStatus = "dumped"
+	InitializedInElastic TableStatus = "initialized_in_elastic"
+	Moving               TableStatus = "moving"
+	Moved                TableStatus = "moved"
+	Syncing              TableStatus = "syncing"
 )
 
 

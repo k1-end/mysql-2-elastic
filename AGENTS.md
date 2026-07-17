@@ -2,9 +2,29 @@
 
 MySQL-to-Elasticsearch real-time synchronizer using binlog replication.
 
-## Build and Run
+## Docker Usage (IMPORTANT — read before running any Docker command)
 
-All Go commands run inside Docker (`golang:1.23.4`) so no local Go installation is needed:
+All Go commands run inside Docker (`golang:1.23.4`) so no local Go installation is needed.
+
+**Rule: Always use `make` targets instead of raw `docker run` commands.** The Makefile includes required bind mounts and environment variables.
+
+If you must run a raw `docker run`, you **always** need this bind mount for the Go module cache:
+
+```
+-v $HOME/go/pkg/mod:/go/pkg/mod
+```
+
+Full example:
+```bash
+docker run --rm --network=host \
+  -v $HOME/go/pkg/mod:/go/pkg/mod \
+  -v $(pwd):/app -w /app golang:1.23.4 \
+  go vet ./...
+```
+
+Without this mount, `go mod tidy` and builds will re-download all dependencies every time and may fail with checksum mismatches.
+
+## Build and Run
 
 ```bash
 make build   # builds ./mysql-2-elastic binary

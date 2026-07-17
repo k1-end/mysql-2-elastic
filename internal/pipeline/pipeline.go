@@ -12,14 +12,13 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/elastic/go-elasticsearch/v7"
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
 
 	"github.com/k1-end/mysql-2-elastic/internal/binlog"
 	"github.com/k1-end/mysql-2-elastic/internal/config"
 	"github.com/k1-end/mysql-2-elastic/internal/dump"
-	"github.com/k1-end/mysql-2-elastic/internal/es"
+	"github.com/k1-end/mysql-2-elastic/internal/handler"
 	"github.com/k1-end/mysql-2-elastic/internal/storage"
 	"github.com/k1-end/mysql-2-elastic/internal/table"
 )
@@ -29,7 +28,7 @@ import (
 func InitializeTables(
 	ctx context.Context,
 	cfg *config.Config,
-	esClient *elasticsearch.Client,
+	registry *handler.Registry,
 	syncer *replication.BinlogSyncer,
 	store storage.TableStorage,
 	log *slog.Logger,
@@ -48,7 +47,7 @@ func InitializeTables(
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := initializeTable(ctx, cfg, t, esClient, syncer, store, log); err != nil {
+		if err := initializeTable(ctx, cfg, t, registry, syncer, store, log); err != nil {
 			return fmt.Errorf("table %q: %w", t.Name, err)
 		}
 	}
@@ -60,7 +59,7 @@ func initializeTable(
 	ctx context.Context,
 	cfg *config.Config,
 	t table.RegisteredTable,
-	esClient *elasticsearch.Client,
+	registry *handler.Registry,
 	syncer *replication.BinlogSyncer,
 	store storage.TableStorage,
 	log *slog.Logger,
@@ -93,7 +92,7 @@ func initializeTable(
 		}
 	}
 
-	// Phase 2: Dumped → initialized in elasticsearch
+	// Phase 2: Dumped → initialized handlers
 	if t.Status == table.Dumped {
 		colsInfo, err := dump.GetTableColsInfoFromDumpFile(dumpPath)
 		if err != nil {
@@ -104,16 +103,12 @@ func initializeTable(
 		}
 		t.Columns = &colsInfo
 
-		exists, err := es.CheckIndexExists(esClient, t.Name)
-		if err != nil {
-			return fmt.Errorf("check index exists: %w", err)
-		}
-		if !exists {
-			if err := es.CreateIndex(esClient, t, log); err != nil {
-				return fmt.Errorf("create index: %w", err)
+		for _, h := range registry.GetActive() {
+			if err := h.OnTableInit(ctx, t.Name, colsInfo); err != nil {
+				log.Error("handler table init failed", "handler", h.Name(), "table", t.Name, "error", err)
 			}
 		}
-		if err := store.SetTableStatus(t.Name, table.InitializedInElastic); err != nil {
+		if err := store.SetTableStatus(t.Name, table.Initialized); err != nil {
 			return err
 		}
 		t.Status, err = store.GetTableStatus(t.Name)
@@ -122,8 +117,8 @@ func initializeTable(
 		}
 	}
 
-	// Phase 3: Initialized → moving → moved (send dump data to ES)
-	if t.Status == table.InitializedInElastic || t.Status == table.Moving {
+	// Phase 3: Initialized → moving → moved (send dump data to handlers)
+	if t.Status == table.Initialized || t.Status == table.Moving {
 		if err := store.SetTableStatus(t.Name, table.Moving); err != nil {
 			return err
 		}
@@ -139,8 +134,8 @@ func initializeTable(
 		if t.Status != table.Moving {
 			return fmt.Errorf("table status is not moving after set")
 		}
-		if err := SendDumpToElastic(t, esClient, store); err != nil {
-			return fmt.Errorf("send dump to elastic: %w", err)
+		if err := SendDumpToHandlers(t, registry, store); err != nil {
+			return fmt.Errorf("send dump to handlers: %w", err)
 		}
 		if err := store.SetTableStatus(t.Name, table.Moved); err != nil {
 			return err
@@ -184,7 +179,7 @@ func initializeTable(
 		switch binlog.CompareBinlogPositions(mainPos, *t.BinlogPos) {
 		case binlog.Pos1Newer:
 			log.Debug("main binlog is newer, catching up dump file to main binlog", "table", t.Name)
-			if err := SyncCatchup([]string{t.Name}, mainPos, *t.BinlogPos, esClient, syncer, store, log); err != nil {
+			if err := SyncCatchup([]string{t.Name}, mainPos, *t.BinlogPos, registry, syncer, store, log); err != nil {
 				return fmt.Errorf("sync catchup: %w", err)
 			}
 		case binlog.Pos2Newer:
@@ -199,7 +194,7 @@ func initializeTable(
 					syncingNames = append(syncingNames, name)
 				}
 			}
-			if err := SyncCatchup(syncingNames, *t.BinlogPos, mainPos, esClient, syncer, store, log); err != nil {
+			if err := SyncCatchup(syncingNames, *t.BinlogPos, mainPos, registry, syncer, store, log); err != nil {
 				return fmt.Errorf("sync catchup: %w", err)
 			}
 		}
@@ -217,7 +212,7 @@ func initializeTable(
 func Run(
 	ctx context.Context,
 	cfg *config.Config,
-	esClient *elasticsearch.Client,
+	registry *handler.Registry,
 	syncer *replication.BinlogSyncer,
 	store storage.TableStorage,
 	log *slog.Logger,
@@ -273,7 +268,7 @@ func Run(
 			if ev == nil {
 				continue
 			}
-			if err := ProcessBinlogEvent(ev, &currentPos, tableNames, esClient, store, log); err != nil {
+			if err := ProcessBinlogEvent(ev, &currentPos, tableNames, registry, store, log); err != nil {
 				log.Error("error processing binlog event", "err", err)
 			}
 		}
@@ -285,7 +280,7 @@ func ProcessBinlogEvent(
 	ev *replication.BinlogEvent,
 	pos *table.BinlogPosition,
 	tableNames []string,
-	esClient *elasticsearch.Client,
+	registry *handler.Registry,
 	store storage.TableStorage,
 	log *slog.Logger,
 ) error {
@@ -306,15 +301,15 @@ func ProcessBinlogEvent(
 
 		switch ev.Header.EventType {
 		case replication.WRITE_ROWS_EVENTv1, replication.WRITE_ROWS_EVENTv2:
-			if err := handleInsert(tableName, e.Rows, esClient, store, log); err != nil {
+			if err := handleInsert(tableName, e.Rows, registry, store, log); err != nil {
 				return err
 			}
 		case replication.UPDATE_ROWS_EVENTv1, replication.UPDATE_ROWS_EVENTv2:
-			if err := handleUpdate(tableName, e.Rows, esClient, store, log); err != nil {
+			if err := handleUpdate(tableName, e.Rows, registry, store, log); err != nil {
 				return err
 			}
 		case replication.DELETE_ROWS_EVENTv1, replication.DELETE_ROWS_EVENTv2:
-			if err := handleDelete(tableName, e.Rows, esClient, store, log); err != nil {
+			if err := handleDelete(tableName, e.Rows, registry, store, log); err != nil {
 				return err
 			}
 		}
@@ -322,20 +317,31 @@ func ProcessBinlogEvent(
 	return binlog.WriteBinlogPosition(*pos)
 }
 
-func handleInsert(tableName string, rows [][]any, esClient *elasticsearch.Client, store storage.TableStorage, log *slog.Logger) error {
+func handleInsert(tableName string, rows [][]any, registry *handler.Registry, store storage.TableStorage, log *slog.Logger) error {
 	t, err := store.GetTable(tableName)
 	if err != nil {
 		return err
 	}
-	records, err := convertRows(rows, *t.Columns)
+	dbRecords, err := convertRows(rows, *t.Columns)
 	if err != nil {
 		return fmt.Errorf("convert insert rows: %w", err)
 	}
-	return es.BulkIndex(tableName, records, esClient, log)
+	records := toHandlerRecords(dbRecords)
+	event := handler.Event{
+		Operation:  handler.OpInsert,
+		Table:      tableName,
+		Records:    records,
+		ColumnInfo: *t.Columns,
+	}
+	for _, h := range registry.GetActive() {
+		if err := h.HandleEvent(context.Background(), event); err != nil {
+			log.Error("handler failed", "handler", h.Name(), "table", tableName, "operation", "insert", "error", err)
+		}
+	}
+	return nil
 }
 
-func handleUpdate(tableName string, rows [][]any, esClient *elasticsearch.Client, store storage.TableStorage, log *slog.Logger) error {
-	// UPDATE events contain pairs: [before-image, after-image]. Only send after-images.
+func handleUpdate(tableName string, rows [][]any, registry *handler.Registry, store storage.TableStorage, log *slog.Logger) error {
 	var afterImages [][]any
 	for i := 0; i+1 < len(rows); i += 2 {
 		afterImages = append(afterImages, rows[i+1])
@@ -344,23 +350,47 @@ func handleUpdate(tableName string, rows [][]any, esClient *elasticsearch.Client
 	if err != nil {
 		return err
 	}
-	records, err := convertRows(afterImages, *t.Columns)
+	dbRecords, err := convertRows(afterImages, *t.Columns)
 	if err != nil {
 		return fmt.Errorf("convert update rows: %w", err)
 	}
-	return es.BulkUpdate(tableName, records, esClient, log)
+	records := toHandlerRecords(dbRecords)
+	event := handler.Event{
+		Operation:  handler.OpUpdate,
+		Table:      tableName,
+		Records:    records,
+		ColumnInfo: *t.Columns,
+	}
+	for _, h := range registry.GetActive() {
+		if err := h.HandleEvent(context.Background(), event); err != nil {
+			log.Error("handler failed", "handler", h.Name(), "table", tableName, "operation", "update", "error", err)
+		}
+	}
+	return nil
 }
 
-func handleDelete(tableName string, rows [][]any, esClient *elasticsearch.Client, store storage.TableStorage, log *slog.Logger) error {
+func handleDelete(tableName string, rows [][]any, registry *handler.Registry, store storage.TableStorage, log *slog.Logger) error {
 	t, err := store.GetTable(tableName)
 	if err != nil {
 		return err
 	}
-	records, err := convertRows(rows, *t.Columns)
+	dbRecords, err := convertRows(rows, *t.Columns)
 	if err != nil {
 		return fmt.Errorf("convert delete rows: %w", err)
 	}
-	return es.BulkDelete(tableName, records, esClient, log)
+	records := toHandlerRecords(dbRecords)
+	event := handler.Event{
+		Operation:  handler.OpDelete,
+		Table:      tableName,
+		Records:    records,
+		ColumnInfo: *t.Columns,
+	}
+	for _, h := range registry.GetActive() {
+		if err := h.HandleEvent(context.Background(), event); err != nil {
+			log.Error("handler failed", "handler", h.Name(), "table", tableName, "operation", "delete", "error", err)
+		}
+	}
+	return nil
 }
 
 func convertRows(rows [][]any, cols []table.ColumnInfo) ([]table.DbRecord, error) {
@@ -383,12 +413,23 @@ func convertRows(rows [][]any, cols []table.ColumnInfo) ([]table.DbRecord, error
 	return records, nil
 }
 
+func toHandlerRecords(dbRecords []table.DbRecord) []handler.Record {
+	records := make([]handler.Record, len(dbRecords))
+	for i, r := range dbRecords {
+		records[i] = handler.Record{
+			PrimaryKey: r.PrimaryKey,
+			Columns:    r.ColValues,
+		}
+	}
+	return records
+}
+
 // SyncCatchup reads binlog events from currentPos until the destination is reached,
-// sending each relevant event to Elasticsearch.
+// sending each relevant event to all active handlers.
 func SyncCatchup(
 	tableNames []string,
 	currentPos, desPos table.BinlogPosition,
-	esClient *elasticsearch.Client,
+	registry *handler.Registry,
 	mainSyncer *replication.BinlogSyncer,
 	store storage.TableStorage,
 	log *slog.Logger,
@@ -411,16 +452,16 @@ func SyncCatchup(
 		if ev == nil {
 			return fmt.Errorf("nil event during catchup")
 		}
-		if err := ProcessBinlogEvent(ev, &currentPos, tableNames, esClient, store, log); err != nil {
+		if err := ProcessBinlogEvent(ev, &currentPos, tableNames, registry, store, log); err != nil {
 			return fmt.Errorf("error processing event during catchup: %w", err)
 		}
 	}
 	return nil
 }
 
-// SendDumpToElastic reads a SQL dump file line-by-line, parsing INSERT statements
-// and bulk-sending them to Elasticsearch.
-func SendDumpToElastic(t table.RegisteredTable, esClient *elasticsearch.Client, store storage.TableStorage) error {
+// SendDumpToHandlers reads a SQL dump file line-by-line, parsing INSERT statements
+// and bulk-sending them to all active handlers.
+func SendDumpToHandlers(t table.RegisteredTable, registry *handler.Registry, store storage.TableStorage) error {
 	dumpPath, err := store.GetDumpFilePath(t.Name)
 	if err != nil {
 		return err
@@ -464,12 +505,22 @@ func SendDumpToElastic(t table.RegisteredTable, esClient *elasticsearch.Client, 
 		if !inInsert {
 			insertSQL := stmt.String()
 			if len(insertSQL) > 0 {
-				records, err := dump.ParseInsertStatements(insertSQL, *t.Columns, nil)
+				dbRecords, err := dump.ParseInsertStatements(insertSQL, *t.Columns, nil)
 				if err != nil {
 					return fmt.Errorf("parse insert statement: %w", err)
 				}
-				if err := es.BulkIndex(t.Name, records, esClient, nil); err != nil {
-					return fmt.Errorf("bulk index dump data: %w", err)
+				records := toHandlerRecords(dbRecords)
+				event := handler.Event{
+					Operation:  handler.OpInsert,
+					Table:      t.Name,
+					Records:    records,
+					ColumnInfo: *t.Columns,
+				}
+				for _, h := range registry.GetActive() {
+					if err := h.HandleEvent(context.Background(), event); err != nil {
+						// Log but continue — other handlers should still run
+						fmt.Printf("handler %s failed for table %s: %v\n", h.Name(), t.Name, err)
+					}
 				}
 			}
 			if err := store.SetDumpReadProgress(t.Name, *t.DumpReadProgress); err != nil {

@@ -10,9 +10,11 @@
     "tables": ["city", "country"]
   },
   "mysql_dump_path": "mysqldump",
-  "elastic": {
-    "address": "http://localhost:9200",
-    "username": "elastic",
-    "password": "elastic"
+  "handlers": {
+    "elasticsearch": {
+      "address": "http://localhost:9200",
+      "username": "elastic",
+      "password": "elastic"
+    }
   }
 }

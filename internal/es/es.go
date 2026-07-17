@@ -11,28 +11,8 @@ import (
 
 	"github.com/elastic/go-elasticsearch/v7"
 	"github.com/elastic/go-elasticsearch/v7/esapi"
-	"github.com/k1-end/mysql-2-elastic/internal/config"
 	"github.com/k1-end/mysql-2-elastic/internal/table"
 )
-
-// NewClient creates an Elasticsearch client and verifies connectivity.
-func NewClient(cfg *config.Config) (*elasticsearch.Client, error) {
-	es, err := elasticsearch.NewClient(elasticsearch.Config{
-		Addresses: []string{cfg.Elastic.Address},
-		Username:  cfg.Elastic.Username,
-		Password:  cfg.Elastic.Password,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to create elasticsearch client: %w", err)
-	}
-
-	res, err := es.Info()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get elasticsearch info: %w", err)
-	}
-	defer res.Body.Close()
-	return es, nil
-}
 
 // BulkIndex sends documents to ES using the bulk API with "index" action.
 func BulkIndex(indexName string, docs []table.DbRecord, client *elasticsearch.Client, log *slog.Logger) error {

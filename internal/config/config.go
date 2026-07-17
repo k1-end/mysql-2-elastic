@@ -17,16 +17,10 @@ type DatabaseConfig struct {
 	Tables   []string `mapstructure:"tables"`
 }
 
-type ElasticConfig struct {
-    Address string `mapstructure:"address"`
-    Username string `mapstructure:"username"`
-    Password string `mapstructure:"password"`
-}
-
 type Config struct {
-	Database DatabaseConfig `mapstructure:"database"`
-    Elastic ElasticConfig `mapstructure:"elastic"`
-    MysqlDumpPath string `mapstructure:"mysqldump_path"`
+	Database      DatabaseConfig  `mapstructure:"database"`
+	Handlers      map[string]any  `mapstructure:"handlers"`
+	MysqlDumpPath string          `mapstructure:"mysqldump_path"`
 }
 
 func LoadConfig() (*Config, error)  {

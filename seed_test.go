@@ -13,7 +13,6 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/k1-end/mysql-2-elastic/internal/config"
 	"github.com/k1-end/mysql-2-elastic/internal/database"
-	"github.com/k1-end/mysql-2-elastic/internal/es"
 	"github.com/k1-end/mysql-2-elastic/internal/logger"
 	"github.com/k1-end/mysql-2-elastic/internal/storage/filesystem"
 	"github.com/k1-end/mysql-2-elastic/internal/table"
@@ -46,10 +45,7 @@ func TestSeed(t *testing.T) {
 		t.Fatalf("failed to ping MySQL: %v", err)
 	}
 
-	esClient, err := es.NewClient(appConfig)
-	if err != nil {
-		t.Fatalf("failed to connect to Elasticsearch: %v", err)
-	}
+	esClient := newTestESClient(t, appConfig)
 
 	tableNames, err := database.GetTableNames(mysqlDB)
 	if err != nil {

@@ -15,12 +15,32 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/k1-end/mysql-2-elastic/internal/config"
 	"github.com/k1-end/mysql-2-elastic/internal/database"
-	"github.com/k1-end/mysql-2-elastic/internal/es"
 	"github.com/k1-end/mysql-2-elastic/internal/logger"
 	"github.com/k1-end/mysql-2-elastic/internal/table"
 )
 
 var testLog = logger.NewLogger(slog.LevelDebug)
+
+func newTestESClient(t *testing.T, cfg *config.Config) *elasticsearch.Client {
+	t.Helper()
+	handlerCfg, ok := cfg.Handlers["elasticsearch"].(map[string]any)
+	if !ok {
+		t.Fatal("elasticsearch handler config not found")
+	}
+	address, _ := handlerCfg["address"].(string)
+	username, _ := handlerCfg["username"].(string)
+	password, _ := handlerCfg["password"].(string)
+
+	client, err := elasticsearch.NewClient(elasticsearch.Config{
+		Addresses: []string{address},
+		Username:  username,
+		Password:  password,
+	})
+	if err != nil {
+		t.Fatalf("failed to create elasticsearch client: %v", err)
+	}
+	return client
+}
 
 func TestSync(t *testing.T) {
 	appConfig, err := config.LoadConfig()
@@ -45,10 +65,7 @@ func TestSync(t *testing.T) {
 		t.Fatalf("failed to ping MySQL: %v", err)
 	}
 
-	esClient, err := es.NewClient(appConfig)
-	if err != nil {
-		t.Fatalf("failed to connect to Elasticsearch: %v", err)
-	}
+	esClient := newTestESClient(t, appConfig)
 
 	testTable := "city"
 	mysqlRow := table.DbRecord{

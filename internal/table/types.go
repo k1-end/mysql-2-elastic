@@ -18,7 +18,7 @@ const (
 	Created              TableStatus = "created"
 	Dumping              TableStatus = "dumping"
 	Dumped               TableStatus = "dumped"
-	InitializedInElastic TableStatus = "initialized_in_elastic"
+	Initialized TableStatus = "initialized"
 	Moving               TableStatus = "moving"
 	Moved                TableStatus = "moved"
 	Syncing              TableStatus = "syncing"

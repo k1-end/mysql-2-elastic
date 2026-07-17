@@ -4,3 +4,4 @@ data/
 config.json
 world.sql
 log.json
+mysql-2-elastic

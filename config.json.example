@@ -6,14 +6,13 @@
     "name": "database_name",
     "username": "root",
     "password": "password",
-    "server_id": 100
+    "server_id": 100,
+    "tables": ["city", "country"]
   },
-  "mysql_dump_path": "path_to_mysqldump_binary",
-  "world_database_path": "world.sql",
+  "mysql_dump_path": "mysqldump",
   "elastic": {
-      "address": "http://localhost:9200",
-      "username": "elastic",
-      "password": "elastic"
+    "address": "http://localhost:9200",
+    "username": "elastic",
+    "password": "elastic"
   }
-
 }

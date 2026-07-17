@@ -3,16 +3,12 @@ package database
 import (
 	"database/sql"
 	"fmt"
-	"sort"
 	"strings"
 
-	tablepack "github.com/k1-end/mysql-2-elastic/internal/table"
+	"github.com/k1-end/mysql-2-elastic/internal/table"
 )
 
-// getMySQLRows retrieves all rows from a given MySQL table.
-// It returns a slice of maps, where each map represents a row
-// and keys are column names.
-func GetMySQLRows(db *sql.DB, tableName, primaryKeyColumn string) ([]tablepack.DbRecord, error) {
+func GetMySQLRows(db *sql.DB, tableName string) ([]table.DbRecord, error) {
 	query := fmt.Sprintf("SELECT * FROM `%s`", tableName)
 	rows, err := db.Query(query)
 	if err != nil {
@@ -25,9 +21,8 @@ func GetMySQLRows(db *sql.DB, tableName, primaryKeyColumn string) ([]tablepack.D
 		return nil, fmt.Errorf("failed to get columns for table %s: %w", tableName, err)
 	}
 
-	var records []tablepack.DbRecord
+	var records []table.DbRecord
 	for rows.Next() {
-		// Create a slice of any to hold the values for scanning
 		values := make([]any, len(columns))
 		pointers := make([]any, len(columns))
 		for i := range values {
@@ -38,21 +33,14 @@ func GetMySQLRows(db *sql.DB, tableName, primaryKeyColumn string) ([]tablepack.D
 			return nil, fmt.Errorf("failed to scan row from table %s: %w", tableName, err)
 		}
 
-        var singleRecord tablepack.DbRecord
-		singleRecord.ColValues = make(map[string]any)
+		rec := table.DbRecord{ColValues: make(map[string]any)}
 		for i, colName := range columns {
-			val := values[i]
-            singleRecord.ColValues[colName] = val
+			rec.ColValues[colName] = values[i]
 		}
-
-		records = append(records, singleRecord)
+		records = append(records, rec)
 	}
 
-	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("error during row iteration for table %s: %w", tableName, err)
-	}
-
-	return records, nil
+	return records, rows.Err()
 }
 
 func GetTableNames(db *sql.DB) ([]string, error) {
@@ -64,89 +52,71 @@ func GetTableNames(db *sql.DB) ([]string, error) {
 
 	var tables []string
 	for rows.Next() {
-		var tableName string
-		if err := rows.Scan(&tableName); err != nil {
+		var name string
+		if err := rows.Scan(&name); err != nil {
 			return nil, fmt.Errorf("failed to scan table name: %w", err)
 		}
-		// You might want to filter out system tables if necessary
-		// if !strings.HasPrefix(tableName, "sys") && !strings.HasPrefix(tableName, "mysql") {
-		tables = append(tables, tableName)
-		// }
+		tables = append(tables, name)
 	}
 	return tables, nil
 }
 
-// InsertRowIntoTable safely inserts a new row into the specified table using a parameterized query.
-func InsertRowIntoTable(db *sql.DB, tableName string, dbRecord tablepack.DbRecord) (int64, error) {
-
-	// Get the keys from the map and sort them
-	keys := make([]string, 0, len(dbRecord.ColValues))
-	for k := range dbRecord.ColValues {
+func InsertRowIntoTable(db *sql.DB, tableName string, record table.DbRecord) (int64, error) {
+	keys := make([]string, 0, len(record.ColValues))
+	for k := range record.ColValues {
 		keys = append(keys, k)
 	}
-	sort.Strings(keys) // Sort the column names alphabetically
 
-	// Now, iterate over the sorted keys to build your slices in a predictable order
 	colNames := make([]string, 0, len(keys))
 	placeholders := make([]string, 0, len(keys))
 	args := make([]any, 0, len(keys))
 
 	for _, col := range keys {
-		val := dbRecord.ColValues[col]
 		colNames = append(colNames, fmt.Sprintf("`%s`", col))
 		placeholders = append(placeholders, "?")
-		args = append(args, val)
+		args = append(args, record.ColValues[col])
 	}
 
-	// Build the final query string.
 	query := fmt.Sprintf(
 		"INSERT INTO `%s` (%s) VALUES (%s)",
 		tableName,
 		strings.Join(colNames, ", "),
 		strings.Join(placeholders, ", "),
-		)
+	)
 
 	tx, err := db.Begin()
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback() // The rollback will be called unless we commit
+	defer tx.Rollback()
 
-
-	// Prepare the statement on the transaction
 	stmt, err := tx.Prepare(query)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("failed to prepare statement: %w", err)
 	}
 	defer stmt.Close()
 
-	// Execute the prepared statement
 	result, err := stmt.Exec(args...)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("failed to execute insert: %w", err)
 	}
 
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
-		// Handle error retrieving rows affected
-		return 0, err
+		return 0, fmt.Errorf("failed to get rows affected: %w", err)
 	}
-
 	if rowsAffected == 0 {
-		// This indicates a silent failure where the database rejected the insert.
-		// You may want to log more details here.
-		return 0, fmt.Errorf("no rows were inserted, possibly due to a constraint violation")
+		return 0, fmt.Errorf("no rows inserted for table %s", tableName)
 	}
 
-	fmt.Println("No error")
-	fmt.Println("Rows effected", rowsAffected)
-	lastInsertedId, err := result.LastInsertId()
+	lastID, err := result.LastInsertId()
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("failed to get last insert id: %w", err)
 	}
-	fmt.Println("lastInsertedId", lastInsertedId)
-	// If all operations were successful, commit the transaction.
-	err = tx.Commit()
-	return lastInsertedId, err
-}
 
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return lastID, nil
+}

@@ -2,35 +2,34 @@ package util
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 )
 
-func IsServerFree() bool {
-	jsonFile, err := os.Open("data/status.json")
+func IsServerFree() (bool, error) {
+	f, err := os.Open("data/status.json")
 	if err != nil {
-		panic(err)
+		return false, fmt.Errorf("failed to open status file: %w", err)
 	}
-	defer jsonFile.Close()
-	byteValue, _ := io.ReadAll(jsonFile)
+	defer f.Close()
+
+	data, err := io.ReadAll(f)
+	if err != nil {
+		return false, fmt.Errorf("failed to read status file: %w", err)
+	}
 
 	var status map[string]any
-	json.Unmarshal(byteValue, &status)
-
-	if status["status"] == "free" {
-		return true
+	if err := json.Unmarshal(data, &status); err != nil {
+		return false, fmt.Errorf("failed to parse status file: %w", err)
 	}
-	return false
+	return status["status"] == "free", nil
 }
 
 func SetServerStatus(status string) error {
-	statusMap := make(map[string]string)
-	statusMap["status"] = status
-	jsonData, err := json.Marshal(statusMap)
+	data, err := json.Marshal(map[string]string{"status": status})
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to marshal status: %w", err)
 	}
-	err = os.WriteFile("data/status.json", jsonData, 0644)
-
-	return nil
+	return os.WriteFile("data/status.json", data, 0644)
 }

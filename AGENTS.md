@@ -4,9 +4,12 @@ MySQL-to-Elasticsearch real-time synchronizer using binlog replication.
 
 ## Build and Run
 
+All Go commands run inside Docker (`golang:1.23.4`) so no local Go installation is needed:
+
 ```bash
-go build -o mysql-2-elastic main.go
-./mysql-2-elastic
+make build   # builds ./mysql-2-elastic binary
+make tidy    # go mod tidy
+make vet     # go vet ./...
 ```
 
 Requires `config.json` in the project root (copy from `config.json.example`). The binary also depends on `mysqldump` (mariadb-dump) being installed on the host for initial data dumps.
@@ -17,8 +20,14 @@ Tests are **integration-only** — they connect to a live MySQL and Elasticsearc
 
 ```bash
 # Requires running MySQL + Elasticsearch from .test-environment/docker-compose.yml
-go test -v -run TestSync ./...
-go test -v -run TestSeed ./...
+docker run --rm --network=host \
+  -v $HOME/go/pkg/mod:/go/pkg/mod \
+  -v $(pwd):/app -w /app golang:1.23.4 \
+  go test -v -run TestSync ./...
+docker run --rm --network=host \
+  -v $HOME/go/pkg/mod:/go/pkg/mod \
+  -v $(pwd):/app -w /app golang:1.23.4 \
+  go test -v -run TestSeed ./...
 ```
 
 The `seed.bash` script loads `world.sql` into MySQL for test data. Both test files live at the project root (`*_test.go`).
@@ -38,29 +47,48 @@ docker build -f Dockerfile-base -t base-go-1 .
 
 ## Architecture
 
-Single-binary Go app. Entry point is `main.go` — there is no CLI framework wired up yet (`cmd/root.go` defines a cobra root command but `main.go` does not use it).
+Single-binary Go app. Entry point is `main.go` (~60 lines) — a thin orchestrator.
 
 **Execution flow:**
 1. Load `config.json` via Viper
 2. Connect to Elasticsearch
 3. Initialize binlog syncer
 4. For each registered table: dump from MySQL → send to ES → catch up binlog → enter real-time sync loop
-5. `runTheSyncer` blocks on binlog events indefinitely
+5. `pipeline.Run` blocks on binlog events until context is cancelled (SIGINT/SIGTERM)
 
 **Internal packages:**
 | Package | Purpose |
 |---|---|
 | `config` | Viper-based config loading from `config.json` |
 | `database` | MySQL schema/row helpers |
-| `dumpFile` | SQL dump creation and INSERT statement parsing |
-| `elastic` | Elasticsearch bulk operations |
-| `logger` | slog-based logging |
+| `dump` | SQL dump creation, INSERT parsing, dump-to-ES transfer |
+| `es` | Elasticsearch bulk operations (single `bulkOp` function) |
+| `binlog` | Binlog position tracking, syncer initialization |
+| `pipeline` | Table lifecycle orchestration, event processing, sync loop |
+| `logger` | slog-based logging (configurable level) |
 | `storage` + `storage/filesystem` | File-based state persistence (table status, binlog positions, dump progress) |
-| `syncer` | Binlog position tracking and syncer initialization |
-| `table` | Data types for table metadata and records |
-| `util` | Misc helpers |
+| `table` | Data types: `BinlogPosition`, `RegisteredTable`, `ColumnInfo`, `DbRecord` |
+| `util` | Misc helpers (directory creation, server status) |
 
 **Key file:** `internal/storage/storage.go` defines the `TableStorage` interface — the filesystem implementation is the only one.
+
+## Dependency Graph
+
+```
+main → config, binlog, es, pipeline, storage/filesystem, logger, util
+pipeline → binlog, config, database, dump, es, storage, table
+dump → config, storage, table, database, util
+es → config, table
+database → table
+storage → table
+storage/filesystem → storage, table
+table → (no internal deps — leaf package)
+binlog → config, table
+logger → (stdlib only)
+util → (stdlib only)
+```
+
+No circular dependencies. `table` is the leaf package everything imports.
 
 ## Gotchas
 
@@ -69,4 +97,3 @@ Single-binary Go app. Entry point is `main.go` — there is no CLI framework wir
 - **Docker images use regional mirrors** (`hub.hamdocker.ir`, `docker.arvancloud.ir`) — may fail outside Iran.
 - **CI only builds Docker** — no lint, test, or typecheck in CI. The workflow triggers only on commits containing "docker build" in the message.
 - Tests require the full docker-compose stack running; they cannot run standalone.
-- The `cmd/` package (cobra CLI) is scaffolding — unused by the actual entry point.
